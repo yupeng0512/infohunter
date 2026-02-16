@@ -1,0 +1,23 @@
+请评估以下博主/频道是否值得长期订阅：
+
+平台: {source}
+作者: {author_id}
+
+个人资料:
+{profile}
+
+近期内容样本:
+{contents}
+
+请输出 JSON 格式的评估报告，包含：
+- summary: 博主一句话概述 (中文)
+- topics: 主要涉及话题列表 (字符串数组)
+- content_quality: 内容质量评分 (1-10)
+- update_frequency: 更新频率评估 (high/medium/low)
+- relevance: 与 AI/科技领域的相关性 (1-10)
+- unique_value: 独特价值描述 (中文)
+- audience_fit: 适合什么样的读者 (中文)
+- subscribe_recommendation: 是否建议订阅 (strongly_recommend/recommend/neutral/not_recommend)
+- reason: 推荐/不推荐的理由 (中文, 2-3句话)
+
+请直接输出 JSON。

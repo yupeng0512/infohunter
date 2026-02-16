@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  infohunter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: infohunter
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${INFOHUNTER_PORT:-6002}:6002"
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - infohunter-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6002/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # 可选: 独立 MySQL (如果不复用已有实例)
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: infohunter-mysql
+  #   restart: unless-stopped
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+  #     MYSQL_DATABASE: ${MYSQL_DATABASE:-infohunter}
+  #     MYSQL_USER: ${MYSQL_USER:-infohunter}
+  #     MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+  #   ports:
+  #     - "3307:3306"
+  #   volumes:
+  #     - mysql_data:/var/lib/mysql
+  #   networks:
+  #     - infohunter-network
+
+networks:
+  infohunter-network:
+    driver: bridge
+
+# volumes:
+#   mysql_data:

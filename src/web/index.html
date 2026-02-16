@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InfoHunter - AI 智能订阅监控</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-hover: #22263a;
+            --border: #2a2e3e;
+            --text: #e4e6eb;
+            --text-secondary: #8b8fa3;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --twitter: #1d9bf0;
+            --youtube: #ff0000;
+            --radius: 12px;
+            --shadow: 0 4px 24px rgba(0,0,0,0.3);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .header .status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Navigation */
+        .nav {
+            display: flex;
+            gap: 4px;
+            padding: 12px 24px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav button {
+            padding: 8px 20px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .nav button:hover { background: var(--bg-hover); color: var(--text); }
+        .nav button.active { background: var(--accent); color: white; }
+
+        /* Main content */
+        .main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+        /* Section */
+        .section { display: none; }
+        .section.active { display: block; }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 16px;
+            transition: all 0.2s;
+        }
+
+        .card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+
+        /* Stats grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            text-align: center;
+        }
+
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .stat-card .label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* Subscription list */
+        .sub-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .sub-header h2 { font-size: 18px; }
+
+        .sub-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+        }
+
+        .sub-info { flex: 1; }
+
+        .sub-info .name {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+
+        .sub-info .meta {
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-twitter { background: rgba(29,155,240,0.15); color: var(--twitter); }
+        .badge-youtube { background: rgba(255,0,0,0.15); color: var(--youtube); }
+        .badge-active { background: rgba(34,197,94,0.15); color: var(--success); }
+        .badge-paused { background: rgba(245,158,11,0.15); color: var(--warning); }
+
+        .sub-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+        .btn-danger:hover { background: rgba(239,68,68,0.1); }
+        .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+        .btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
+
+        /* Content list */
+        .content-item {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .content-item:last-child { border-bottom: none; }
+
+        .content-item .title {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 6px;
+        }
+
+        .content-item .title a {
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        .content-item .title a:hover { color: var(--accent); }
+
+        .content-item .text {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .content-item .footer {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            flex-wrap: wrap;
+        }
+
+        .content-item .ai-tag {
+            display: inline-block;
+            padding: 2px 6px;
+            background: rgba(99,102,241,0.15);
+            color: var(--accent);
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 200;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active { display: flex; }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal h3 { margin-bottom: 16px; font-size: 18px; }
+
+        .form-group { margin-bottom: 16px; }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Empty state */
+        .empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty .icon { font-size: 48px; margin-bottom: 12px; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 12px 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 300;
+            box-shadow: var(--shadow);
+            transition: all 0.3s;
+            transform: translateY(100px);
+            opacity: 0;
+        }
+
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { border-color: var(--success); }
+        .toast.error { border-color: var(--danger); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔍 InfoHunter</h1>
+        <div class="status">
+            <div class="dot"></div>
+            <span id="status-text">连接中...</span>
+        </div>
+    </div>
+
+    <div class="nav">
+        <button class="active" data-tab="dashboard">📊 概览</button>
+        <button data-tab="subscriptions">📋 订阅管理</button>
+        <button data-tab="contents">📰 内容浏览</button>
+    </div>
+
+    <div class="main">
+        <!-- Dashboard -->
+        <div id="dashboard" class="section active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="value" id="stat-subs">-</div>
+                    <div class="label">活跃订阅</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value" id="stat-total">-</div>
+                    <div class="label">总内容数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value" id="stat-twitter">-</div>
+                    <div class="label">🐦 Twitter</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value" id="stat-youtube">-</div>
+                    <div class="label">📺 YouTube</div>
+                </div>
+            </div>
+
+            <h2 style="margin-bottom: 16px;">⚡ 快捷操作</h2>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <button class="btn btn-primary" onclick="triggerFetch()">🔄 手动采集</button>
+                <button class="btn btn-ghost" onclick="triggerDailyReport()">📊 生成日报</button>
+            </div>
+        </div>
+
+        <!-- Subscriptions -->
+        <div id="subscriptions" class="section">
+            <div class="sub-header">
+                <h2>订阅管理</h2>
+                <button class="btn btn-primary" onclick="showCreateModal()">+ 新建订阅</button>
+            </div>
+            <div id="sub-list">
+                <div class="loading"><div class="spinner"></div>加载中...</div>
+            </div>
+        </div>
+
+        <!-- Contents -->
+        <div id="contents" class="section">
+            <div class="sub-header">
+                <h2>内容浏览</h2>
+                <div style="display: flex; gap: 8px;">
+                    <select id="content-source" onchange="loadContents()" style="padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px;">
+                        <option value="">全部来源</option>
+                        <option value="twitter">🐦 Twitter</option>
+                        <option value="youtube">📺 YouTube</option>
+                    </select>
+                </div>
+            </div>
+            <div id="content-list">
+                <div class="loading"><div class="spinner"></div>加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Subscription Modal -->
+    <div class="modal-overlay" id="create-modal">
+        <div class="modal">
+            <h3>新建订阅</h3>
+            <div class="form-group">
+                <label>订阅名称</label>
+                <input type="text" id="sub-name" placeholder="例: AI 趋势追踪">
+            </div>
+            <div class="form-group">
+                <label>数据源</label>
+                <select id="sub-source">
+                    <option value="twitter">🐦 Twitter</option>
+                    <option value="youtube">📺 YouTube</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>订阅类型</label>
+                <select id="sub-type">
+                    <option value="keyword">关键词搜索</option>
+                    <option value="author">博主/频道</option>
+                    <option value="topic">话题</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>订阅目标</label>
+                <input type="text" id="sub-target" placeholder="关键词 / @用户名 / 频道ID">
+            </div>
+            <div class="form-group">
+                <label>采集间隔 (秒)</label>
+                <input type="number" id="sub-interval" value="3600" min="300" max="86400">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+                <button class="btn btn-primary" onclick="createSubscription()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const API = '';
+
+        // Tab navigation
+        document.querySelectorAll('.nav button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.tab).classList.add('active');
+
+                if (btn.dataset.tab === 'subscriptions') loadSubscriptions();
+                if (btn.dataset.tab === 'contents') loadContents();
+            });
+        });
+
+        // Health check
+        async function checkHealth() {
+            try {
+                const res = await fetch(`${API}/api/health`);
+                const data = await res.json();
+                document.getElementById('status-text').textContent = '运行中';
+                document.getElementById('stat-subs').textContent = data.subscriptions || 0;
+                document.getElementById('stat-total').textContent = data.contents || 0;
+                document.getElementById('stat-twitter').textContent = data.twitter_contents || 0;
+                document.getElementById('stat-youtube').textContent = data.youtube_contents || 0;
+            } catch (e) {
+                document.getElementById('status-text').textContent = '连接失败';
+                document.querySelector('.dot').style.background = 'var(--danger)';
+            }
+        }
+
+        // Subscriptions
+        async function loadSubscriptions() {
+            const container = document.getElementById('sub-list');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
+
+            try {
+                const res = await fetch(`${API}/api/subscriptions`);
+                const subs = await res.json();
+
+                if (!subs.length) {
+                    container.innerHTML = '<div class="empty"><div class="icon">📋</div><p>暂无订阅，点击右上角创建</p></div>';
+                    return;
+                }
+
+                container.innerHTML = subs.map(sub => `
+                    <div class="card sub-item">
+                        <div class="sub-info">
+                            <div class="name">
+                                <span class="badge badge-${sub.source}">${sub.source}</span>
+                                ${sub.name}
+                            </div>
+                            <div class="meta">
+                                <span>🎯 ${sub.target}</span>
+                                <span>⏱️ ${Math.round(sub.fetch_interval / 60)}分钟</span>
+                                <span class="badge badge-${sub.status}">${sub.status}</span>
+                                ${sub.last_fetched_at ? `<span>最后采集: ${new Date(sub.last_fetched_at).toLocaleString('zh-CN')}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="sub-actions">
+                            <button class="btn btn-ghost" onclick="toggleSubscription(${sub.id}, '${sub.status}')">
+                                ${sub.status === 'active' ? '⏸️ 暂停' : '▶️ 启用'}
+                            </button>
+                            <button class="btn btn-danger" onclick="deleteSubscription(${sub.id})">🗑️</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = '<div class="empty"><div class="icon">❌</div><p>加载失败</p></div>';
+            }
+        }
+
+        // Contents
+        async function loadContents() {
+            const container = document.getElementById('content-list');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
+
+            const source = document.getElementById('content-source').value;
+            const params = new URLSearchParams({ limit: '100' });
+            if (source) params.set('source', source);
+
+            try {
+                const res = await fetch(`${API}/api/contents?${params}`);
+                const contents = await res.json();
+
+                if (!contents.length) {
+                    container.innerHTML = '<div class="empty"><div class="icon">📰</div><p>暂无内容</p></div>';
+                    return;
+                }
+
+                container.innerHTML = '<div class="card">' + contents.map(c => {
+                    const sourceEmoji = c.source === 'twitter' ? '🐦' : '📺';
+                    const metrics = c.metrics || {};
+                    const metricParts = [];
+                    if (metrics.views) metricParts.push(`👁️ ${formatNum(metrics.views)}`);
+                    if (metrics.likes) metricParts.push(`❤️ ${formatNum(metrics.likes)}`);
+                    if (metrics.retweets) metricParts.push(`🔄 ${metrics.retweets}`);
+                    if (metrics.comments) metricParts.push(`💬 ${metrics.comments}`);
+
+                    const aiTags = [];
+                    if (c.ai_analysis) {
+                        const a = c.ai_analysis;
+                        if (a.importance) aiTags.push(`⭐ ${a.importance}/10`);
+                        if (a.sentiment) aiTags.push(a.sentiment);
+                    }
+
+                    return `
+                        <div class="content-item">
+                            <div class="title">
+                                ${sourceEmoji}
+                                <a href="${c.url || '#'}" target="_blank">
+                                    ${c.title || (c.content || '').substring(0, 100) + '...'}
+                                </a>
+                            </div>
+                            ${c.content ? `<div class="text">${escapeHtml(c.content.substring(0, 300))}</div>` : ''}
+                            <div class="footer">
+                                <span>@${c.author || 'unknown'}</span>
+                                ${metricParts.length ? `<span>${metricParts.join(' | ')}</span>` : ''}
+                                ${c.quality_score ? `<span>质量: ${(c.quality_score * 100).toFixed(0)}%</span>` : ''}
+                                ${aiTags.map(t => `<span class="ai-tag">${t}</span>`).join('')}
+                                ${c.posted_at ? `<span>${new Date(c.posted_at).toLocaleString('zh-CN')}</span>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('') + '</div>';
+            } catch (e) {
+                container.innerHTML = '<div class="empty"><div class="icon">❌</div><p>加载失败</p></div>';
+            }
+        }
+
+        // Create subscription
+        function showCreateModal() {
+            document.getElementById('create-modal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('create-modal').classList.remove('active');
+        }
+
+        async function createSubscription() {
+            const data = {
+                name: document.getElementById('sub-name').value,
+                source: document.getElementById('sub-source').value,
+                type: document.getElementById('sub-type').value,
+                target: document.getElementById('sub-target').value,
+                fetch_interval: parseInt(document.getElementById('sub-interval').value),
+            };
+
+            if (!data.name || !data.target) {
+                showToast('请填写名称和目标', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API}/api/subscriptions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+
+                if (res.ok) {
+                    showToast('订阅创建成功', 'success');
+                    closeModal();
+                    loadSubscriptions();
+                    checkHealth();
+                } else {
+                    const err = await res.json();
+                    showToast(`创建失败: ${err.detail || '未知错误'}`, 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+        }
+
+        async function toggleSubscription(id, currentStatus) {
+            const newStatus = currentStatus === 'active' ? 'paused' : 'active';
+            try {
+                const res = await fetch(`${API}/api/subscriptions/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus }),
+                });
+                if (res.ok) {
+                    showToast(`已${newStatus === 'active' ? '启用' : '暂停'}`, 'success');
+                    loadSubscriptions();
+                }
+            } catch (e) {
+                showToast('操作失败', 'error');
+            }
+        }
+
+        async function deleteSubscription(id) {
+            if (!confirm('确定要删除此订阅吗？')) return;
+            try {
+                const res = await fetch(`${API}/api/subscriptions/${id}`, { method: 'DELETE' });
+                if (res.ok) {
+                    showToast('已删除', 'success');
+                    loadSubscriptions();
+                    checkHealth();
+                }
+            } catch (e) {
+                showToast('删除失败', 'error');
+            }
+        }
+
+        // Trigger actions
+        async function triggerFetch() {
+            showToast('正在采集...', 'success');
+            try {
+                await fetch(`${API}/api/trigger/fetch`, { method: 'POST' });
+                showToast('采集完成', 'success');
+                checkHealth();
+            } catch (e) {
+                showToast('采集失败', 'error');
+            }
+        }
+
+        async function triggerDailyReport() {
+            showToast('正在生成日报...', 'success');
+            try {
+                await fetch(`${API}/api/trigger/daily-report`, { method: 'POST' });
+                showToast('日报已发送', 'success');
+            } catch (e) {
+                showToast('生成失败', 'error');
+            }
+        }
+
+        // Helpers
+        function formatNum(n) {
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+            return n;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showToast(msg, type = '') {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.className = `toast show ${type}`;
+            setTimeout(() => toast.className = 'toast', 3000);
+        }
+
+        // Init
+        checkHealth();
+        setInterval(checkHealth, 30000);
+    </script>
+</body>
+</html>

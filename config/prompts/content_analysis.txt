@@ -1,0 +1,21 @@
+请分析以下来自 {source} 的社交媒体内容：
+
+标题: {title}
+作者: {author}
+正文: {content}
+互动数据: {metrics}
+字幕/文字稿: {transcript}
+
+请输出 JSON 格式的分析报告，包含以下字段：
+- summary: 一句话中文摘要
+- key_points: 核心观点列表 (中文, 最多5条)
+- sentiment: 情感倾向 (positive/negative/neutral/mixed)
+- topics: 涉及的话题标签列表 (英文)
+- importance: 重要性评分 (1-10, 10为最重要)
+- quality_indicators: 内容质量指标
+  - originality: 原创性 (1-10)
+  - depth: 深度 (1-10)
+  - credibility: 可信度 (1-10)
+- recommendation: 是否值得深入关注的建议 (中文, 1-2句话)
+
+请直接输出 JSON，不要添加额外说明。
