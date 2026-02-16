@@ -299,7 +299,7 @@ class DatabaseManager:
             query = (
                 select(Content)
                 .where(Content.posted_at >= since)
-                .order_by(Content.quality_score.desc().nullslast())
+                .order_by(Content.quality_score.desc())
                 .limit(limit)
             )
             if source:

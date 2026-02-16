@@ -65,7 +65,7 @@ class YouTubeTranscriptClient(SourceClient):
             params = {"query": query}
             data = await self._request("search", params)
 
-            results = data.get("results", data.get("data", []))
+            results = data.get("videos", data.get("results", data.get("data", [])))
             if not isinstance(results, list):
                 return []
 
@@ -150,7 +150,8 @@ class YouTubeTranscriptClient(SourceClient):
             return None
 
         try:
-            params = {"video_id": content_id}
+            video_url = f"https://www.youtube.com/watch?v={content_id}"
+            params = {"url": video_url}
             language = kwargs.get("language")
             if language:
                 params["language"] = language
@@ -244,26 +245,45 @@ class YouTubeTranscriptClient(SourceClient):
             return None
 
     def _parse_search_result(self, item: dict) -> Optional[dict[str, Any]]:
-        """解析搜索结果"""
+        """解析搜索结果
+
+        兼容 ScrapeCreators 格式:
+        {
+            "id": "xxx", "title": "...", "url": "...",
+            "channel": {"id": "...", "title": "...", "handle": "..."},
+            "viewCountInt": 12345, "publishedTime": "...", ...
+        }
+        """
         video_id = item.get("videoId", item.get("video_id", item.get("id")))
         if not video_id:
             return None
 
+        # 处理 channel 字段（可能是 dict 或 string）
+        channel = item.get("channel", {})
+        if isinstance(channel, dict):
+            author = channel.get("title", channel.get("handle", ""))
+            author_id = channel.get("id", channel.get("handle", ""))
+        else:
+            author = item.get("channelTitle", str(channel) if channel else "")
+            author_id = item.get("channelId", item.get("channel_id", ""))
+
         return {
             "content_id": str(video_id),
             "source": "youtube",
-            "author": item.get("channelTitle", item.get("channel", "")),
-            "author_id": item.get("channelId", item.get("channel_id", "")),
+            "author": author,
+            "author_id": author_id,
             "title": item.get("title", ""),
             "content": item.get("description", item.get("snippet", "")),
-            "url": f"https://www.youtube.com/watch?v={video_id}",
+            "url": item.get("url", f"https://www.youtube.com/watch?v={video_id}"),
             "metrics": {
-                "views": self._parse_int(item.get("viewCount", item.get("views", 0))),
+                "views": self._parse_int(
+                    item.get("viewCountInt", item.get("viewCount", item.get("views", 0)))
+                ),
                 "likes": self._parse_int(item.get("likeCount", item.get("likes", 0))),
                 "comments": self._parse_int(item.get("commentCount", item.get("comments", 0))),
             },
             "posted_at": self._parse_datetime(
-                item.get("publishedAt", item.get("published_at", item.get("publishDate")))
+                item.get("publishedTime", item.get("publishedAt", item.get("published_at")))
             ),
             "raw_data": item,
         }
