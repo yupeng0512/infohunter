@@ -14,7 +14,7 @@ services:
     volumes:
       - ./logs:/app/logs
     networks:
-      - infohunter-network
+      - sentinel-network
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6002/api/health')"]
       interval: 30s
@@ -22,26 +22,9 @@ services:
       retries: 3
       start_period: 30s
 
-  # 可选: 独立 MySQL (如果不复用已有实例)
-  # mysql:
-  #   image: mysql:8.0
-  #   container_name: infohunter-mysql
-  #   restart: unless-stopped
-  #   environment:
-  #     MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-  #     MYSQL_DATABASE: ${MYSQL_DATABASE:-infohunter}
-  #     MYSQL_USER: ${MYSQL_USER:-infohunter}
-  #     MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-  #   ports:
-  #     - "3307:3306"
-  #   volumes:
-  #     - mysql_data:/var/lib/mysql
-  #   networks:
-  #     - infohunter-network
-
 networks:
-  infohunter-network:
-    driver: bridge
-
-# volumes:
-#   mysql_data:
+  sentinel-network:
+    # 复用 github-sentinel 的 MySQL 网络
+    # 如果使用独立 MySQL，改为 driver: bridge
+    external: true
+    name: github-sentinel_sentinel-network
