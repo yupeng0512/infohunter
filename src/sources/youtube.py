@@ -1,9 +1,11 @@
 """YouTube 数据源 (Data API v3)
 
 主力方案：搜索/视频详情/频道信息。
-使用官方免费 API，每日 10,000 单位配额。
+支持 API Key 和 OAuth 2.0 两种认证方式。
+OAuth 2.0 用于 API Key 被限制的场景。
 """
 
+import time
 from datetime import datetime
 from typing import Any, Optional
 
@@ -16,30 +18,112 @@ from .base import SourceClient
 
 
 class YouTubeClient(SourceClient):
-    """YouTube Data API v3 客户端"""
+    """YouTube Data API v3 客户端
+
+    认证优先级：
+    1. OAuth 2.0 (如果配置了 refresh_token)
+    2. API Key (简单但可能被限制)
+    """
 
     source_name = "youtube"
     BASE_URL = "https://www.googleapis.com/youtube/v3"
+    TOKEN_URL = "https://oauth2.googleapis.com/token"
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or settings.youtube_api_key
-        if not self.api_key:
-            logger.warning("YouTube Data API key not configured")
+
+        # OAuth 2.0 配置
+        self._oauth_client_id = settings.youtube_oauth_client_id
+        self._oauth_client_secret = settings.youtube_oauth_client_secret
+        self._oauth_refresh_token = settings.youtube_oauth_refresh_token
+        self._access_token: Optional[str] = None
+        self._token_expires_at: float = 0
+
+        self._use_oauth = bool(
+            self._oauth_client_id
+            and self._oauth_client_secret
+            and self._oauth_refresh_token
+        )
+
+        if self._use_oauth:
+            logger.info("YouTube client: OAuth 2.0 mode")
+        elif self.api_key:
+            logger.info("YouTube client: API Key mode")
+        else:
+            logger.warning("YouTube Data API not configured")
+
+    async def _refresh_access_token(self) -> bool:
+        """刷新 OAuth 2.0 Access Token"""
+        if not self._use_oauth:
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    self.TOKEN_URL,
+                    data={
+                        "client_id": self._oauth_client_id,
+                        "client_secret": self._oauth_client_secret,
+                        "refresh_token": self._oauth_refresh_token,
+                        "grant_type": "refresh_token",
+                    },
+                )
+                if resp.status_code != 200:
+                    logger.error(f"YouTube OAuth token refresh failed: {resp.status_code} {resp.text[:300]}")
+                    return False
+
+                data = resp.json()
+                self._access_token = data["access_token"]
+                self._token_expires_at = time.time() + data.get("expires_in", 3600) - 60
+                logger.debug("YouTube OAuth access token refreshed")
+                return True
+
+        except Exception as e:
+            logger.error(f"YouTube OAuth token refresh error: {e}")
+            return False
+
+    async def _ensure_token(self) -> bool:
+        """确保有有效的 access token"""
+        if not self._use_oauth:
+            return False
+        if self._access_token and time.time() < self._token_expires_at:
+            return True
+        return await self._refresh_access_token()
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
     )
     async def _request(self, endpoint: str, params: dict) -> dict:
-        """发送 API 请求"""
+        """发送 API 请求 (自动选择 OAuth 或 API Key)"""
         url = f"{self.BASE_URL}/{endpoint}"
-        params["key"] = self.api_key
+        headers = {}
+
+        if self._use_oauth and await self._ensure_token():
+            headers["Authorization"] = f"Bearer {self._access_token}"
+        elif self.api_key:
+            params["key"] = self.api_key
+        else:
+            logger.error("YouTube: no auth configured")
+            return {"items": []}
+
         self._log_request("GET", url=url, params={k: v for k, v in params.items() if k != "key"})
 
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(url, params=params)
+            response = await client.get(url, params=params, headers=headers)
+
+            if response.status_code == 401 and self._use_oauth:
+                logger.warning("YouTube OAuth token expired, refreshing...")
+                if await self._refresh_access_token():
+                    headers["Authorization"] = f"Bearer {self._access_token}"
+                    response = await client.get(url, params=params, headers=headers)
+
             if response.status_code == 403:
-                logger.error("YouTube API quota exceeded or forbidden")
+                error_text = response.text[:300]
+                if "API_KEY_SERVICE_BLOCKED" in error_text and not self._use_oauth:
+                    logger.error("YouTube API Key blocked. Configure OAuth 2.0 to resolve.")
+                else:
+                    logger.error(f"YouTube API forbidden: {error_text}")
                 return {"items": []}
             if response.status_code != 200:
                 logger.error(f"YouTube API error: {response.status_code} {response.text[:500]}")

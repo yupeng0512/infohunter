@@ -32,7 +32,7 @@ class SubscriptionCreate(BaseModel):
         examples=[{"min_likes": 100, "language": "en", "sort": "Latest"}],
     )
     fetch_interval: int = Field(
-        default=3600, description="采集间隔 (秒)", ge=300, le=86400
+        default=14400, description="采集间隔 (秒), 默认 4 小时", ge=300, le=86400
     )
     ai_analysis_enabled: bool = Field(default=True, description="是否启用 AI 分析")
     notification_enabled: bool = Field(default=True, description="是否启用通知")

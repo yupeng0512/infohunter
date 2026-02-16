@@ -3,482 +3,602 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InfoHunter - AI 智能订阅监控</title>
+    <title>InfoHunter — AI 智能订阅监控</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #0f1117;
-            --bg-card: #1a1d27;
-            --bg-hover: #22263a;
-            --border: #2a2e3e;
-            --text: #e4e6eb;
-            --text-secondary: #8b8fa3;
+            --bg-deep: #06080f;
+            --bg: #0c0f1a;
+            --bg-card: #12162a;
+            --bg-card-hover: #181d36;
+            --bg-glass: rgba(18, 22, 42, 0.7);
+            --border: #1e2545;
+            --border-active: #4f46e5;
+            --text: #e8eaf0;
+            --text-dim: #7c82a1;
+            --text-muted: #4a5078;
             --accent: #6366f1;
-            --accent-hover: #818cf8;
-            --success: #22c55e;
-            --warning: #f59e0b;
-            --danger: #ef4444;
+            --accent-glow: rgba(99, 102, 241, 0.25);
+            --accent-soft: #818cf8;
+            --emerald: #10b981;
+            --emerald-glow: rgba(16, 185, 129, 0.2);
+            --amber: #f59e0b;
+            --rose: #f43f5e;
             --twitter: #1d9bf0;
-            --youtube: #ff0000;
-            --radius: 12px;
-            --shadow: 0 4px 24px rgba(0,0,0,0.3);
+            --youtube: #ff0033;
+            --radius: 14px;
+            --radius-sm: 8px;
+            --font-body: 'DM Sans', -apple-system, sans-serif;
+            --font-heading: 'Space Grotesk', 'DM Sans', sans-serif;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg);
+            font-family: var(--font-body);
+            background: var(--bg-deep);
             color: var(--text);
             line-height: 1.6;
             min-height: 100vh;
+            overflow-x: hidden;
         }
 
-        /* Header */
+        /* Ambient background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background: radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.06) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 20%, rgba(16,185,129,0.04) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ===== HEADER ===== */
         .header {
-            background: var(--bg-card);
+            position: sticky; top: 0; z-index: 100;
+            background: rgba(6, 8, 15, 0.85);
+            backdrop-filter: blur(20px) saturate(1.4);
+            -webkit-backdrop-filter: blur(20px) saturate(1.4);
             border-bottom: 1px solid var(--border);
-            padding: 16px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 100;
+            padding: 0 28px;
+            height: 60px;
+            display: flex; align-items: center; justify-content: space-between;
         }
 
-        .header h1 {
-            font-size: 20px;
-            font-weight: 700;
-            background: linear-gradient(135deg, var(--accent), #a855f7);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        .header-left { display: flex; align-items: center; gap: 24px; }
+
+        .logo {
+            font-family: var(--font-heading);
+            font-size: 19px; font-weight: 700;
+            letter-spacing: -0.5px;
+            display: flex; align-items: center; gap: 10px;
         }
 
-        .header .status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        .header .status .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--success);
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        /* Navigation */
-        .nav {
-            display: flex;
-            gap: 4px;
-            padding: 12px 24px;
-            background: var(--bg-card);
-            border-bottom: 1px solid var(--border);
-        }
-
-        .nav button {
-            padding: 8px 20px;
-            border: none;
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 14px;
-            cursor: pointer;
+        .logo-icon {
+            width: 28px; height: 28px;
+            background: linear-gradient(135deg, var(--accent), #a78bfa);
             border-radius: 8px;
-            transition: all 0.2s;
+            display: flex; align-items: center; justify-content: center;
         }
 
-        .nav button:hover { background: var(--bg-hover); color: var(--text); }
-        .nav button.active { background: var(--accent); color: white; }
+        .logo-icon svg { width: 16px; height: 16px; color: white; }
 
-        /* Main content */
-        .main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        .nav { display: flex; gap: 2px; }
 
-        /* Section */
-        .section { display: none; }
+        .nav-btn {
+            padding: 6px 16px; height: 34px;
+            border: none; background: transparent;
+            color: var(--text-dim); font-size: 13px; font-weight: 500;
+            font-family: var(--font-body);
+            cursor: pointer; border-radius: 7px;
+            transition: all 0.2s ease;
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        .nav-btn:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+        .nav-btn.active { color: white; background: var(--accent); }
+        .nav-btn svg { width: 15px; height: 15px; }
+
+        .status-pill {
+            display: flex; align-items: center; gap: 7px;
+            padding: 5px 12px; border-radius: 20px;
+            background: rgba(16,185,129,0.08);
+            border: 1px solid rgba(16,185,129,0.15);
+            font-size: 12px; color: var(--emerald); font-weight: 500;
+        }
+
+        .status-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--emerald);
+            animation: blink 2.5s ease-in-out infinite;
+        }
+
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+        /* ===== MAIN ===== */
+        .main { position: relative; z-index: 1; max-width: 1260px; margin: 0 auto; padding: 28px; }
+
+        .section { display: none; animation: fadeIn 0.3s ease; }
         .section.active { display: block; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 
-        /* Cards */
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
-            margin-bottom: 16px;
-            transition: all 0.2s;
-        }
-
-        .card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
-
-        /* Stats grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
-        }
+        /* ===== STATS ===== */
+        .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
 
         .stat-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            padding: 20px;
-            text-align: center;
+            padding: 22px 20px;
+            position: relative; overflow: hidden;
+            transition: border-color 0.25s, box-shadow 0.25s;
         }
 
-        .stat-card .value {
-            font-size: 32px;
-            font-weight: 700;
-            color: var(--accent);
-        }
+        .stat-card:hover { border-color: var(--border-active); box-shadow: 0 0 30px var(--accent-glow); }
 
-        .stat-card .label {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin-top: 4px;
-        }
+        .stat-card .label { font-size: 12px; color: var(--text-dim); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+        .stat-card .label svg { width: 14px; height: 14px; opacity: 0.6; }
+        .stat-card .value { font-family: var(--font-heading); font-size: 30px; font-weight: 700; letter-spacing: -1px; }
+        .stat-card .value.accent { color: var(--accent-soft); }
+        .stat-card .value.twitter { color: var(--twitter); }
+        .stat-card .value.youtube { color: var(--youtube); }
 
-        /* Subscription list */
-        .sub-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-        }
-
-        .sub-header h2 { font-size: 18px; }
-
-        .sub-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 16px 20px;
-        }
-
-        .sub-info { flex: 1; }
-
-        .sub-info .name {
-            font-weight: 600;
-            font-size: 15px;
-            margin-bottom: 4px;
-        }
-
-        .sub-info .meta {
-            font-size: 13px;
-            color: var(--text-secondary);
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .badge-twitter { background: rgba(29,155,240,0.15); color: var(--twitter); }
-        .badge-youtube { background: rgba(255,0,0,0.15); color: var(--youtube); }
-        .badge-active { background: rgba(34,197,94,0.15); color: var(--success); }
-        .badge-paused { background: rgba(245,158,11,0.15); color: var(--warning); }
-
-        .sub-actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        /* Buttons */
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 8px;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-weight: 500;
-        }
-
-        .btn-primary { background: var(--accent); color: white; }
-        .btn-primary:hover { background: var(--accent-hover); }
-        .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
-        .btn-danger:hover { background: rgba(239,68,68,0.1); }
-        .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
-        .btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
-
-        /* Content list */
-        .content-item {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .content-item:last-child { border-bottom: none; }
-
-        .content-item .title {
-            font-weight: 600;
-            font-size: 15px;
-            margin-bottom: 6px;
-        }
-
-        .content-item .title a {
-            color: var(--text);
-            text-decoration: none;
-        }
-
-        .content-item .title a:hover { color: var(--accent); }
-
-        .content-item .text {
-            font-size: 14px;
-            color: var(--text-secondary);
-            margin-bottom: 8px;
-            display: -webkit-box;
-            -webkit-line-clamp: 3;
-            -webkit-box-orient: vertical;
+        /* ===== CARDS ===== */
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             overflow: hidden;
         }
 
-        .content-item .footer {
-            display: flex;
-            gap: 16px;
-            font-size: 12px;
-            color: var(--text-secondary);
-            flex-wrap: wrap;
+        .panel-header {
+            padding: 18px 22px;
+            display: flex; align-items: center; justify-content: space-between;
+            border-bottom: 1px solid var(--border);
         }
 
-        .content-item .ai-tag {
-            display: inline-block;
-            padding: 2px 6px;
-            background: rgba(99,102,241,0.15);
-            color: var(--accent);
-            border-radius: 4px;
-            font-size: 11px;
+        .panel-title { font-family: var(--font-heading); font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .panel-title svg { width: 18px; height: 18px; color: var(--accent-soft); }
+
+        /* ===== BUTTONS ===== */
+        .btn {
+            padding: 8px 16px; border: none; border-radius: var(--radius-sm);
+            font-size: 13px; font-weight: 600; font-family: var(--font-body);
+            cursor: pointer; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; gap: 6px;
         }
 
-        /* Modal */
-        .modal-overlay {
+        .btn svg { width: 14px; height: 14px; }
+        .btn-accent { background: var(--accent); color: white; }
+        .btn-accent:hover { background: #5558e6; box-shadow: 0 4px 16px var(--accent-glow); }
+        .btn-emerald { background: var(--emerald); color: white; }
+        .btn-emerald:hover { background: #0ea572; }
+        .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+        .btn-ghost:hover { background: rgba(255,255,255,0.04); color: var(--text); border-color: var(--text-muted); }
+        .btn-rose { background: transparent; color: var(--rose); border: 1px solid rgba(244,63,94,0.3); }
+        .btn-rose:hover { background: rgba(244,63,94,0.08); }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+        /* ===== SUBSCRIPTION LIST ===== */
+        .sub-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 22px;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.15s;
+        }
+
+        .sub-row:last-child { border-bottom: none; }
+        .sub-row:hover { background: var(--bg-card-hover); }
+
+        .sub-info { flex: 1; min-width: 0; }
+
+        .sub-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+
+        .sub-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+
+        .tag {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 8px; border-radius: 5px;
+            font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+        }
+
+        .tag-twitter { background: rgba(29,155,240,0.12); color: var(--twitter); }
+        .tag-youtube { background: rgba(255,0,51,0.12); color: var(--youtube); }
+        .tag-active { background: rgba(16,185,129,0.12); color: var(--emerald); }
+        .tag-paused { background: rgba(245,158,11,0.12); color: var(--amber); }
+        .tag-keyword { background: rgba(99,102,241,0.1); color: var(--accent-soft); }
+        .tag-author { background: rgba(168,85,247,0.1); color: #a855f7; }
+        .tag-topic { background: rgba(245,158,11,0.1); color: var(--amber); }
+
+        .sub-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+        /* ===== CONTENT LIST ===== */
+        .content-row {
+            padding: 18px 22px;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.15s;
+        }
+
+        .content-row:last-child { border-bottom: none; }
+        .content-row:hover { background: var(--bg-card-hover); }
+
+        .content-title {
+            font-weight: 600; font-size: 14px; margin-bottom: 6px;
+            display: flex; align-items: flex-start; gap: 8px;
+        }
+
+        .content-title a { color: var(--text); text-decoration: none; transition: color 0.15s; }
+        .content-title a:hover { color: var(--accent-soft); }
+
+        .content-text {
+            font-size: 13px; color: var(--text-dim); margin-bottom: 10px;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+            line-height: 1.5;
+        }
+
+        .content-footer { display: flex; gap: 14px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; align-items: center; }
+
+        .metric { display: inline-flex; align-items: center; gap: 3px; }
+        .metric svg { width: 12px; height: 12px; }
+
+        .ai-badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 7px; border-radius: 4px;
+            background: rgba(99,102,241,0.1); color: var(--accent-soft);
+            font-size: 11px; font-weight: 600;
+        }
+
+        /* ===== QUICK ACTIONS ===== */
+        .actions-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
+
+        .action-card {
+            flex: 1; min-width: 200px;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 20px;
+            cursor: pointer; transition: all 0.25s;
+            display: flex; align-items: center; gap: 14px;
+        }
+
+        .action-card:hover { border-color: var(--border-active); box-shadow: 0 0 24px var(--accent-glow); transform: translateY(-2px); }
+
+        .action-icon {
+            width: 42px; height: 42px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+
+        .action-icon svg { width: 20px; height: 20px; color: white; }
+        .action-icon.purple { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+        .action-icon.green { background: linear-gradient(135deg, #10b981, #34d399); }
+        .action-icon.blue { background: linear-gradient(135deg, #3b82f6, #60a5fa); }
+
+        .action-label { font-weight: 600; font-size: 14px; }
+        .action-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+        /* ===== ANALYZE SECTION ===== */
+        .analyze-box {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px; margin-bottom: 28px;
+        }
+
+        .analyze-input-row { display: flex; gap: 10px; }
+
+        .analyze-input {
+            flex: 1; padding: 12px 16px;
+            background: var(--bg-deep); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); color: var(--text);
+            font-size: 14px; font-family: var(--font-body);
+            transition: border-color 0.2s;
+        }
+
+        .analyze-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+        .analyze-input::placeholder { color: var(--text-muted); }
+
+        .analyze-result {
+            margin-top: 20px; padding: 18px;
+            background: var(--bg-deep); border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 13px; line-height: 1.7;
             display: none;
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.7);
-            z-index: 200;
-            justify-content: center;
-            align-items: center;
+        }
+
+        .analyze-result.show { display: block; animation: fadeIn 0.3s ease; }
+
+        /* ===== MODAL ===== */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.65); backdrop-filter: blur(8px);
+            z-index: 200; justify-content: center; align-items: center;
         }
 
         .modal-overlay.active { display: flex; }
 
         .modal {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 24px;
-            width: 90%;
-            max-width: 500px;
-            max-height: 80vh;
-            overflow-y: auto;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 28px;
+            width: 92%; max-width: 480px; max-height: 85vh; overflow-y: auto;
+            animation: modalIn 0.25s ease;
         }
 
-        .modal h3 { margin-bottom: 16px; font-size: 18px; }
+        @keyframes modalIn { from{opacity:0;transform:scale(0.95)} to{opacity:1;transform:scale(1)} }
+
+        .modal h3 { font-family: var(--font-heading); font-size: 18px; font-weight: 700; margin-bottom: 20px; }
 
         .form-group { margin-bottom: 16px; }
 
-        .form-group label {
-            display: block;
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin-bottom: 6px;
+        .form-label { display: block; font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+
+        .form-input, .form-select {
+            width: 100%; padding: 10px 14px;
+            background: var(--bg-deep); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); color: var(--text);
+            font-size: 14px; font-family: var(--font-body);
+            transition: border-color 0.2s;
         }
 
-        .form-group input,
-        .form-group select {
-            width: 100%;
-            padding: 10px 12px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text);
-            font-size: 14px;
+        .form-input:focus, .form-select:focus { outline: none; border-color: var(--accent); }
+
+        .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+        .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; }
+
+        /* ===== FILTER BAR ===== */
+        .filter-bar { display: flex; gap: 8px; align-items: center; }
+
+        .filter-select {
+            padding: 6px 12px; background: var(--bg-deep);
+            border: 1px solid var(--border); border-radius: var(--radius-sm);
+            color: var(--text); font-size: 12px; font-family: var(--font-body);
         }
 
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
+        /* ===== EMPTY / LOADING ===== */
+        .empty-state { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+        .empty-state svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.3; }
+        .empty-state p { font-size: 14px; }
 
-        .form-actions {
-            display: flex;
-            gap: 8px;
-            justify-content: flex-end;
-            margin-top: 20px;
-        }
-
-        /* Loading */
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: var(--text-secondary);
-        }
+        .loading-state { text-align: center; padding: 48px; }
 
         .spinner {
-            width: 32px;
-            height: 32px;
-            border: 3px solid var(--border);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin: 0 auto 12px;
+            width: 28px; height: 28px;
+            border: 3px solid var(--border); border-top-color: var(--accent);
+            border-radius: 50%; animation: spin 0.7s linear infinite;
+            margin: 0 auto 10px;
         }
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Empty state */
-        .empty {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--text-secondary);
-        }
-
-        .empty .icon { font-size: 48px; margin-bottom: 12px; }
-
-        /* Toast */
+        /* ===== TOAST ===== */
         .toast {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            padding: 12px 20px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 14px;
-            z-index: 300;
-            box-shadow: var(--shadow);
-            transition: all 0.3s;
-            transform: translateY(100px);
-            opacity: 0;
+            position: fixed; bottom: 24px; right: 24px;
+            padding: 12px 20px; background: var(--bg-card);
+            border: 1px solid var(--border); border-radius: var(--radius-sm);
+            font-size: 13px; font-weight: 500; z-index: 300;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            transform: translateY(80px); opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
         }
 
         .toast.show { transform: translateY(0); opacity: 1; }
-        .toast.success { border-color: var(--success); }
-        .toast.error { border-color: var(--danger); }
+        .toast.success { border-color: var(--emerald); }
+        .toast.error { border-color: var(--rose); }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 768px) {
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+            .header { padding: 0 16px; }
+            .main { padding: 16px; }
+            .nav { gap: 0; }
+            .nav-btn { padding: 6px 10px; font-size: 12px; }
+            .nav-btn span { display: none; }
+            .sub-row { flex-direction: column; align-items: flex-start; gap: 10px; }
+            .sub-actions { width: 100%; }
+            .analyze-input-row { flex-direction: column; }
+        }
+
+        @media (max-width: 480px) {
+            .stats-row { grid-template-columns: 1fr 1fr; gap: 10px; }
+            .stat-card .value { font-size: 24px; }
+            .actions-grid { flex-direction: column; }
+        }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🔍 InfoHunter</h1>
-        <div class="status">
-            <div class="dot"></div>
-            <span id="status-text">连接中...</span>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </div>
+                InfoHunter
+            </div>
+            <nav class="nav">
+                <button class="nav-btn active" data-tab="dashboard">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                    <span>概览</span>
+                </button>
+                <button class="nav-btn" data-tab="subscriptions">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+                    <span>订阅</span>
+                </button>
+                <button class="nav-btn" data-tab="contents">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span>内容</span>
+                </button>
+                <button class="nav-btn" data-tab="analyze">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M20 12a8 8 0 0 0-8-8v8h8z" fill="currentColor" opacity="0.15"/></svg>
+                    <span>AI 分析</span>
+                </button>
+            </nav>
         </div>
-    </div>
+        <div class="status-pill">
+            <div class="status-dot" id="status-dot"></div>
+            <span id="status-text">连接中</span>
+        </div>
+    </header>
 
-    <div class="nav">
-        <button class="active" data-tab="dashboard">📊 概览</button>
-        <button data-tab="subscriptions">📋 订阅管理</button>
-        <button data-tab="contents">📰 内容浏览</button>
-    </div>
-
-    <div class="main">
+    <!-- Main -->
+    <main class="main">
         <!-- Dashboard -->
         <div id="dashboard" class="section active">
-            <div class="stats-grid">
+            <div class="stats-row">
                 <div class="stat-card">
-                    <div class="value" id="stat-subs">-</div>
-                    <div class="label">活跃订阅</div>
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg> 活跃订阅</div>
+                    <div class="value accent" id="stat-subs">—</div>
                 </div>
                 <div class="stat-card">
-                    <div class="value" id="stat-total">-</div>
-                    <div class="label">总内容数</div>
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg> 总内容</div>
+                    <div class="value" id="stat-total">—</div>
                 </div>
                 <div class="stat-card">
-                    <div class="value" id="stat-twitter">-</div>
-                    <div class="label">🐦 Twitter</div>
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg> Twitter</div>
+                    <div class="value twitter" id="stat-twitter">—</div>
                 </div>
                 <div class="stat-card">
-                    <div class="value" id="stat-youtube">-</div>
-                    <div class="label">📺 YouTube</div>
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> YouTube</div>
+                    <div class="value youtube" id="stat-youtube">—</div>
                 </div>
             </div>
 
-            <h2 style="margin-bottom: 16px;">⚡ 快捷操作</h2>
-            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button class="btn btn-primary" onclick="triggerFetch()">🔄 手动采集</button>
-                <button class="btn btn-ghost" onclick="triggerDailyReport()">📊 生成日报</button>
+            <div class="actions-grid">
+                <div class="action-card" onclick="triggerFetch()">
+                    <div class="action-icon purple">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </div>
+                    <div><div class="action-label">手动采集</div><div class="action-desc">立即触发一轮数据采集</div></div>
+                </div>
+                <div class="action-card" onclick="triggerDailyReport()">
+                    <div class="action-icon green">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+                    </div>
+                    <div><div class="action-label">生成日报</div><div class="action-desc">AI 趋势分析 + 飞书推送</div></div>
+                </div>
+                <div class="action-card" onclick="switchTab('analyze')">
+                    <div class="action-icon blue">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/></svg>
+                    </div>
+                    <div><div class="action-label">AI 即时分析</div><div class="action-desc">分析链接或评估博主</div></div>
+                </div>
             </div>
         </div>
 
         <!-- Subscriptions -->
         <div id="subscriptions" class="section">
-            <div class="sub-header">
-                <h2>订阅管理</h2>
-                <button class="btn btn-primary" onclick="showCreateModal()">+ 新建订阅</button>
-            </div>
-            <div id="sub-list">
-                <div class="loading"><div class="spinner"></div>加载中...</div>
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+                        订阅管理
+                    </div>
+                    <button class="btn btn-accent" onclick="showCreateModal()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        新建订阅
+                    </button>
+                </div>
+                <div id="sub-list">
+                    <div class="loading-state"><div class="spinner"></div><div style="font-size:13px;color:var(--text-dim)">加载中</div></div>
+                </div>
             </div>
         </div>
 
         <!-- Contents -->
         <div id="contents" class="section">
-            <div class="sub-header">
-                <h2>内容浏览</h2>
-                <div style="display: flex; gap: 8px;">
-                    <select id="content-source" onchange="loadContents()" style="padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px;">
-                        <option value="">全部来源</option>
-                        <option value="twitter">🐦 Twitter</option>
-                        <option value="youtube">📺 YouTube</option>
-                    </select>
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        内容浏览
+                    </div>
+                    <div class="filter-bar">
+                        <select class="filter-select" id="content-source" onchange="loadContents()">
+                            <option value="">全部来源</option>
+                            <option value="twitter">Twitter</option>
+                            <option value="youtube">YouTube</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="content-list">
+                    <div class="loading-state"><div class="spinner"></div><div style="font-size:13px;color:var(--text-dim)">加载中</div></div>
                 </div>
             </div>
-            <div id="content-list">
-                <div class="loading"><div class="spinner"></div>加载中...</div>
+        </div>
+
+        <!-- AI Analyze -->
+        <div id="analyze" class="section">
+            <div class="analyze-box">
+                <div class="panel-title" style="margin-bottom:16px">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/></svg>
+                    即时链接分析
+                </div>
+                <div class="analyze-input-row">
+                    <input class="analyze-input" id="analyze-url" placeholder="粘贴 Twitter 或 YouTube 链接..." />
+                    <button class="btn btn-accent" onclick="analyzeUrl()" id="analyze-url-btn">分析</button>
+                </div>
+                <div class="analyze-result" id="url-result"></div>
+            </div>
+
+            <div class="analyze-box">
+                <div class="panel-title" style="margin-bottom:16px">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    博主/频道评估
+                </div>
+                <div class="analyze-input-row">
+                    <input class="analyze-input" id="analyze-author" placeholder="Twitter 用户名 (如 sama) 或 YouTube 频道 ID" />
+                    <select class="filter-select" id="analyze-source" style="padding:12px;font-size:14px">
+                        <option value="twitter">Twitter</option>
+                        <option value="youtube">YouTube</option>
+                    </select>
+                    <button class="btn btn-accent" onclick="analyzeAuthor()" id="analyze-author-btn">评估</button>
+                </div>
+                <div class="analyze-result" id="author-result"></div>
             </div>
         </div>
-    </div>
+    </main>
 
     <!-- Create Subscription Modal -->
-    <div class="modal-overlay" id="create-modal">
+    <div class="modal-overlay" id="create-modal" onclick="if(event.target===this)closeModal()">
         <div class="modal">
             <h3>新建订阅</h3>
             <div class="form-group">
-                <label>订阅名称</label>
-                <input type="text" id="sub-name" placeholder="例: AI 趋势追踪">
+                <label class="form-label">订阅名称</label>
+                <input class="form-input" id="sub-name" placeholder="例: AI Agent 趋势追踪">
             </div>
             <div class="form-group">
-                <label>数据源</label>
-                <select id="sub-source">
-                    <option value="twitter">🐦 Twitter</option>
-                    <option value="youtube">📺 YouTube</option>
+                <label class="form-label">数据源</label>
+                <select class="form-select" id="sub-source">
+                    <option value="twitter">Twitter</option>
+                    <option value="youtube">YouTube</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>订阅类型</label>
-                <select id="sub-type">
+                <label class="form-label">订阅类型</label>
+                <select class="form-select" id="sub-type" onchange="updateTargetHint()">
                     <option value="keyword">关键词搜索</option>
-                    <option value="author">博主/频道</option>
-                    <option value="topic">话题</option>
+                    <option value="author">博主/频道订阅</option>
+                    <option value="topic">话题追踪</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>订阅目标</label>
-                <input type="text" id="sub-target" placeholder="关键词 / @用户名 / 频道ID">
+                <label class="form-label">订阅目标</label>
+                <input class="form-input" id="sub-target" placeholder="AI agent OR LLM">
+                <div class="form-hint" id="target-hint">支持 OR 语法，如: "AI agent" OR "LLM" from:sama</div>
             </div>
             <div class="form-group">
-                <label>采集间隔 (秒)</label>
-                <input type="number" id="sub-interval" value="3600" min="300" max="86400">
+                <label class="form-label">采集间隔</label>
+                <select class="form-select" id="sub-interval">
+                    <option value="3600">1 小时</option>
+                    <option value="7200">2 小时</option>
+                    <option value="14400" selected>4 小时 (推荐)</option>
+                    <option value="28800">8 小时</option>
+                    <option value="43200">12 小时</option>
+                    <option value="86400">24 小时</option>
+                </select>
             </div>
             <div class="form-actions">
                 <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-                <button class="btn btn-primary" onclick="createSubscription()">创建</button>
+                <button class="btn btn-accent" onclick="createSubscription()">创建订阅</button>
             </div>
         </div>
     </div>
@@ -489,141 +609,201 @@
     <script>
         const API = '';
 
-        // Tab navigation
-        document.querySelectorAll('.nav button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-                btn.classList.add('active');
-                document.getElementById(btn.dataset.tab).classList.add('active');
-
-                if (btn.dataset.tab === 'subscriptions') loadSubscriptions();
-                if (btn.dataset.tab === 'contents') loadContents();
-            });
+        /* ===== Navigation ===== */
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => switchTab(btn.dataset.tab));
         });
 
-        // Health check
+        function switchTab(tab) {
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            const btn = document.querySelector(`.nav-btn[data-tab="${tab}"]`);
+            if (btn) btn.classList.add('active');
+            document.getElementById(tab).classList.add('active');
+            if (tab === 'subscriptions') loadSubscriptions();
+            if (tab === 'contents') loadContents();
+        }
+
+        /* ===== Health ===== */
         async function checkHealth() {
             try {
-                const res = await fetch(`${API}/api/health`);
-                const data = await res.json();
+                const r = await fetch(`${API}/api/health`);
+                const d = await r.json();
                 document.getElementById('status-text').textContent = '运行中';
-                document.getElementById('stat-subs').textContent = data.subscriptions || 0;
-                document.getElementById('stat-total').textContent = data.contents || 0;
-                document.getElementById('stat-twitter').textContent = data.twitter_contents || 0;
-                document.getElementById('stat-youtube').textContent = data.youtube_contents || 0;
-            } catch (e) {
-                document.getElementById('status-text').textContent = '连接失败';
-                document.querySelector('.dot').style.background = 'var(--danger)';
+                document.getElementById('status-dot').style.background = 'var(--emerald)';
+                document.getElementById('stat-subs').textContent = d.subscriptions || 0;
+                document.getElementById('stat-total').textContent = d.contents || 0;
+                document.getElementById('stat-twitter').textContent = d.twitter_contents || 0;
+                document.getElementById('stat-youtube').textContent = d.youtube_contents || 0;
+            } catch {
+                document.getElementById('status-text').textContent = '离线';
+                document.getElementById('status-dot').style.background = 'var(--rose)';
             }
         }
 
-        // Subscriptions
+        /* ===== Subscriptions ===== */
         async function loadSubscriptions() {
-            const container = document.getElementById('sub-list');
-            container.innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
-
+            const el = document.getElementById('sub-list');
+            el.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
             try {
-                const res = await fetch(`${API}/api/subscriptions`);
-                const subs = await res.json();
-
+                const r = await fetch(`${API}/api/subscriptions`);
+                const subs = await r.json();
                 if (!subs.length) {
-                    container.innerHTML = '<div class="empty"><div class="icon">📋</div><p>暂无订阅，点击右上角创建</p></div>';
+                    el.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg><p>暂无订阅，点击上方「新建订阅」开始</p></div>';
                     return;
                 }
-
-                container.innerHTML = subs.map(sub => `
-                    <div class="card sub-item">
+                el.innerHTML = subs.map(s => {
+                    const typeLabel = {keyword:'关键词',author:'博主',topic:'话题'}[s.type]||s.type;
+                    const interval = s.fetch_interval >= 3600 ? `${s.fetch_interval/3600}h` : `${s.fetch_interval/60}m`;
+                    return `<div class="sub-row">
                         <div class="sub-info">
-                            <div class="name">
-                                <span class="badge badge-${sub.source}">${sub.source}</span>
-                                ${sub.name}
+                            <div class="sub-name">
+                                <span class="tag tag-${s.source}">${s.source}</span>
+                                <span class="tag tag-${s.type}">${typeLabel}</span>
+                                ${s.name}
                             </div>
-                            <div class="meta">
-                                <span>🎯 ${sub.target}</span>
-                                <span>⏱️ ${Math.round(sub.fetch_interval / 60)}分钟</span>
-                                <span class="badge badge-${sub.status}">${sub.status}</span>
-                                ${sub.last_fetched_at ? `<span>最后采集: ${new Date(sub.last_fetched_at).toLocaleString('zh-CN')}</span>` : ''}
+                            <div class="sub-meta">
+                                <span>${s.target}</span>
+                                <span>每 ${interval}</span>
+                                <span class="tag tag-${s.status}">${s.status}</span>
+                                ${s.last_fetched_at ? `<span>上次: ${new Date(s.last_fetched_at).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}
                             </div>
                         </div>
                         <div class="sub-actions">
-                            <button class="btn btn-ghost" onclick="toggleSubscription(${sub.id}, '${sub.status}')">
-                                ${sub.status === 'active' ? '⏸️ 暂停' : '▶️ 启用'}
-                            </button>
-                            <button class="btn btn-danger" onclick="deleteSubscription(${sub.id})">🗑️</button>
+                            <button class="btn btn-ghost btn-sm" onclick="toggleSub(${s.id},'${s.status}')">${s.status==='active'?'暂停':'启用'}</button>
+                            <button class="btn btn-rose btn-sm" onclick="deleteSub(${s.id})">删除</button>
                         </div>
-                    </div>
-                `).join('');
-            } catch (e) {
-                container.innerHTML = '<div class="empty"><div class="icon">❌</div><p>加载失败</p></div>';
-            }
+                    </div>`;
+                }).join('');
+            } catch { el.innerHTML = '<div class="empty-state"><p>加载失败</p></div>'; }
         }
 
-        // Contents
+        /* ===== Contents ===== */
         async function loadContents() {
-            const container = document.getElementById('content-list');
-            container.innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
-
-            const source = document.getElementById('content-source').value;
-            const params = new URLSearchParams({ limit: '100' });
-            if (source) params.set('source', source);
-
+            const el = document.getElementById('content-list');
+            el.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
+            const src = document.getElementById('content-source').value;
+            const p = new URLSearchParams({limit:'100'});
+            if (src) p.set('source', src);
             try {
-                const res = await fetch(`${API}/api/contents?${params}`);
-                const contents = await res.json();
-
-                if (!contents.length) {
-                    container.innerHTML = '<div class="empty"><div class="icon">📰</div><p>暂无内容</p></div>';
+                const r = await fetch(`${API}/api/contents?${p}`);
+                const items = await r.json();
+                if (!items.length) {
+                    el.innerHTML = '<div class="empty-state"><p>暂无内容</p></div>';
                     return;
                 }
-
-                container.innerHTML = '<div class="card">' + contents.map(c => {
-                    const sourceEmoji = c.source === 'twitter' ? '🐦' : '📺';
-                    const metrics = c.metrics || {};
-                    const metricParts = [];
-                    if (metrics.views) metricParts.push(`👁️ ${formatNum(metrics.views)}`);
-                    if (metrics.likes) metricParts.push(`❤️ ${formatNum(metrics.likes)}`);
-                    if (metrics.retweets) metricParts.push(`🔄 ${metrics.retweets}`);
-                    if (metrics.comments) metricParts.push(`💬 ${metrics.comments}`);
+                el.innerHTML = items.map(c => {
+                    const m = c.metrics || {};
+                    const metrics = [];
+                    if (m.views) metrics.push(`<span class="metric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${fmtN(m.views)}</span>`);
+                    if (m.likes) metrics.push(`<span class="metric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>${fmtN(m.likes)}</span>`);
+                    if (m.retweets) metrics.push(`<span class="metric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>${m.retweets}</span>`);
 
                     const aiTags = [];
                     if (c.ai_analysis) {
                         const a = c.ai_analysis;
-                        if (a.importance) aiTags.push(`⭐ ${a.importance}/10`);
-                        if (a.sentiment) aiTags.push(a.sentiment);
+                        if (a.importance) aiTags.push(`<span class="ai-badge">${a.importance}/10</span>`);
+                        if (a.sentiment) aiTags.push(`<span class="ai-badge">${a.sentiment}</span>`);
                     }
 
-                    return `
-                        <div class="content-item">
-                            <div class="title">
-                                ${sourceEmoji}
-                                <a href="${c.url || '#'}" target="_blank">
-                                    ${c.title || (c.content || '').substring(0, 100) + '...'}
-                                </a>
-                            </div>
-                            ${c.content ? `<div class="text">${escapeHtml(c.content.substring(0, 300))}</div>` : ''}
-                            <div class="footer">
-                                <span>@${c.author || 'unknown'}</span>
-                                ${metricParts.length ? `<span>${metricParts.join(' | ')}</span>` : ''}
-                                ${c.quality_score ? `<span>质量: ${(c.quality_score * 100).toFixed(0)}%</span>` : ''}
-                                ${aiTags.map(t => `<span class="ai-tag">${t}</span>`).join('')}
-                                ${c.posted_at ? `<span>${new Date(c.posted_at).toLocaleString('zh-CN')}</span>` : ''}
-                            </div>
+                    return `<div class="content-row">
+                        <div class="content-title">
+                            <span class="tag tag-${c.source}" style="flex-shrink:0">${c.source}</span>
+                            <a href="${c.url||'#'}" target="_blank" rel="noopener">${esc(c.title || (c.content||'').substring(0,120))}</a>
                         </div>
-                    `;
-                }).join('') + '</div>';
-            } catch (e) {
-                container.innerHTML = '<div class="empty"><div class="icon">❌</div><p>加载失败</p></div>';
+                        ${c.content ? `<div class="content-text">${esc(c.content.substring(0,280))}</div>` : ''}
+                        <div class="content-footer">
+                            <span>@${c.author_id || c.author || '—'}</span>
+                            ${metrics.join('')}
+                            ${c.quality_score ? `<span>质量 ${(c.quality_score*100).toFixed(0)}%</span>` : ''}
+                            ${aiTags.join('')}
+                            ${c.posted_at ? `<span>${new Date(c.posted_at).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch { el.innerHTML = '<div class="empty-state"><p>加载失败</p></div>'; }
+        }
+
+        /* ===== Analyze ===== */
+        async function analyzeUrl() {
+            const url = document.getElementById('analyze-url').value.trim();
+            if (!url) return;
+            const btn = document.getElementById('analyze-url-btn');
+            const el = document.getElementById('url-result');
+            btn.disabled = true; btn.textContent = '分析中...';
+            el.className = 'analyze-result'; el.innerHTML = '';
+            try {
+                const r = await fetch(`${API}/api/analyze/url`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
+                const d = await r.json();
+                el.className = 'analyze-result show';
+                if (d.error) { el.innerHTML = `<div style="color:var(--rose)">错误: ${esc(d.error)}</div>`; return; }
+                let html = '';
+                if (d.content) {
+                    const c = d.content;
+                    html += `<div style="margin-bottom:12px"><strong>@${esc(c.author_id||c.author||'')}</strong> · ${c.source}</div>`;
+                    html += `<div style="margin-bottom:12px;color:var(--text-dim)">${esc((c.content||'').substring(0,300))}</div>`;
+                }
+                if (d.analysis) {
+                    const a = d.analysis;
+                    if (a.summary) html += `<div style="margin-bottom:8px"><strong>摘要:</strong> ${esc(a.summary)}</div>`;
+                    if (a.key_points) html += `<div style="margin-bottom:8px"><strong>要点:</strong><ul style="margin:4px 0 0 16px">${a.key_points.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></div>`;
+                    if (a.importance) html += `<span class="ai-badge" style="margin-right:6px">重要性 ${a.importance}/10</span>`;
+                    if (a.sentiment) html += `<span class="ai-badge" style="margin-right:6px">${a.sentiment}</span>`;
+                    if (a.recommendation) html += `<div style="margin-top:10px;color:var(--text-dim);font-size:12px">${esc(a.recommendation)}</div>`;
+                }
+                el.innerHTML = html || '无分析结果';
+            } catch { el.className = 'analyze-result show'; el.innerHTML = '<div style="color:var(--rose)">请求失败</div>'; }
+            finally { btn.disabled = false; btn.textContent = '分析'; }
+        }
+
+        async function analyzeAuthor() {
+            const author = document.getElementById('analyze-author').value.trim();
+            const source = document.getElementById('analyze-source').value;
+            if (!author) return;
+            const btn = document.getElementById('analyze-author-btn');
+            const el = document.getElementById('author-result');
+            btn.disabled = true; btn.textContent = '评估中...';
+            el.className = 'analyze-result'; el.innerHTML = '';
+            try {
+                const r = await fetch(`${API}/api/analyze/author`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({author_id:author,source})});
+                const d = await r.json();
+                el.className = 'analyze-result show';
+                if (d.error) { el.innerHTML = `<div style="color:var(--rose)">错误: ${esc(d.error)}</div>`; return; }
+                let html = `<div style="margin-bottom:8px"><strong>@${esc(d.author_id)}</strong> · ${d.source} · ${d.recent_contents?.length||0} 条内容</div>`;
+                if (d.analysis) {
+                    const a = d.analysis;
+                    if (a.summary) html += `<div style="margin-bottom:8px">${esc(a.summary)}</div>`;
+                    if (a.subscribe_recommendation) {
+                        const colors = {strongly_recommend:'var(--emerald)',recommend:'var(--emerald)',neutral:'var(--amber)',not_recommend:'var(--rose)'};
+                        const labels = {strongly_recommend:'强烈推荐',recommend:'推荐',neutral:'中性',not_recommend:'不推荐'};
+                        html += `<span class="ai-badge" style="background:${colors[a.subscribe_recommendation]||'var(--accent)'}20;color:${colors[a.subscribe_recommendation]||'var(--accent)'}">${labels[a.subscribe_recommendation]||a.subscribe_recommendation}</span> `;
+                    }
+                    if (a.content_quality) html += `<span class="ai-badge">质量 ${a.content_quality}/10</span> `;
+                    if (a.reason) html += `<div style="margin-top:10px;color:var(--text-dim);font-size:12px">${esc(a.reason)}</div>`;
+                }
+                el.innerHTML = html;
+            } catch { el.className = 'analyze-result show'; el.innerHTML = '<div style="color:var(--rose)">请求失败</div>'; }
+            finally { btn.disabled = false; btn.textContent = '评估'; }
+        }
+
+        /* ===== Modal ===== */
+        function showCreateModal() { document.getElementById('create-modal').classList.add('active'); }
+        function closeModal() { document.getElementById('create-modal').classList.remove('active'); }
+
+        function updateTargetHint() {
+            const type = document.getElementById('sub-type').value;
+            const input = document.getElementById('sub-target');
+            const hint = document.getElementById('target-hint');
+            if (type === 'keyword') {
+                input.placeholder = 'AI agent OR LLM';
+                hint.textContent = '支持 OR 语法，如: "AI agent" OR "LLM" from:sama';
+            } else if (type === 'author') {
+                input.placeholder = '@sama 或 UCxxxxxx';
+                hint.textContent = 'Twitter 用户名 (不含 @) 或 YouTube 频道 ID (UC 开头)';
+            } else {
+                input.placeholder = '#AI #MachineLearning';
+                hint.textContent = '话题标签，支持多个';
             }
-        }
-
-        // Create subscription
-        function showCreateModal() {
-            document.getElementById('create-modal').classList.add('active');
-        }
-
-        function closeModal() {
-            document.getElementById('create-modal').classList.remove('active');
         }
 
         async function createSubscription() {
@@ -634,107 +814,52 @@
                 target: document.getElementById('sub-target').value,
                 fetch_interval: parseInt(document.getElementById('sub-interval').value),
             };
-
-            if (!data.name || !data.target) {
-                showToast('请填写名称和目标', 'error');
-                return;
-            }
-
+            if (!data.name || !data.target) { showToast('请填写名称和目标','error'); return; }
             try {
-                const res = await fetch(`${API}/api/subscriptions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                });
-
-                if (res.ok) {
-                    showToast('订阅创建成功', 'success');
-                    closeModal();
-                    loadSubscriptions();
-                    checkHealth();
-                } else {
-                    const err = await res.json();
-                    showToast(`创建失败: ${err.detail || '未知错误'}`, 'error');
-                }
-            } catch (e) {
-                showToast('网络错误', 'error');
-            }
+                const r = await fetch(`${API}/api/subscriptions`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+                if (r.ok) { showToast('订阅创建成功','success'); closeModal(); loadSubscriptions(); checkHealth(); }
+                else { const e = await r.json(); showToast(`失败: ${e.detail||'未知错误'}`,'error'); }
+            } catch { showToast('网络错误','error'); }
         }
 
-        async function toggleSubscription(id, currentStatus) {
-            const newStatus = currentStatus === 'active' ? 'paused' : 'active';
+        async function toggleSub(id, st) {
+            const ns = st==='active'?'paused':'active';
             try {
-                const res = await fetch(`${API}/api/subscriptions/${id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: newStatus }),
-                });
-                if (res.ok) {
-                    showToast(`已${newStatus === 'active' ? '启用' : '暂停'}`, 'success');
-                    loadSubscriptions();
-                }
-            } catch (e) {
-                showToast('操作失败', 'error');
-            }
+                const r = await fetch(`${API}/api/subscriptions/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:ns})});
+                if (r.ok) { showToast(ns==='active'?'已启用':'已暂停','success'); loadSubscriptions(); }
+            } catch { showToast('操作失败','error'); }
         }
 
-        async function deleteSubscription(id) {
-            if (!confirm('确定要删除此订阅吗？')) return;
+        async function deleteSub(id) {
+            if (!confirm('确定删除此订阅？')) return;
             try {
-                const res = await fetch(`${API}/api/subscriptions/${id}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('已删除', 'success');
-                    loadSubscriptions();
-                    checkHealth();
-                }
-            } catch (e) {
-                showToast('删除失败', 'error');
-            }
+                const r = await fetch(`${API}/api/subscriptions/${id}`, {method:'DELETE'});
+                if (r.ok) { showToast('已删除','success'); loadSubscriptions(); checkHealth(); }
+            } catch { showToast('删除失败','error'); }
         }
 
-        // Trigger actions
+        /* ===== Triggers ===== */
         async function triggerFetch() {
-            showToast('正在采集...', 'success');
-            try {
-                await fetch(`${API}/api/trigger/fetch`, { method: 'POST' });
-                showToast('采集完成', 'success');
-                checkHealth();
-            } catch (e) {
-                showToast('采集失败', 'error');
-            }
+            showToast('正在采集...','success');
+            try { await fetch(`${API}/api/trigger/fetch`,{method:'POST'}); showToast('采集完成','success'); checkHealth(); }
+            catch { showToast('采集失败','error'); }
         }
 
         async function triggerDailyReport() {
-            showToast('正在生成日报...', 'success');
-            try {
-                await fetch(`${API}/api/trigger/daily-report`, { method: 'POST' });
-                showToast('日报已发送', 'success');
-            } catch (e) {
-                showToast('生成失败', 'error');
-            }
+            showToast('正在生成日报...','success');
+            try { await fetch(`${API}/api/trigger/daily-report`,{method:'POST'}); showToast('日报已发送','success'); }
+            catch { showToast('生成失败','error'); }
         }
 
-        // Helpers
-        function formatNum(n) {
-            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-            return n;
+        /* ===== Helpers ===== */
+        function fmtN(n) { return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':n; }
+        function esc(t) { const d=document.createElement('div'); d.textContent=t||''; return d.innerHTML; }
+        function showToast(msg,type='') {
+            const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast show ${type}`;
+            setTimeout(()=>t.className='toast',3000);
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        function showToast(msg, type = '') {
-            const toast = document.getElementById('toast');
-            toast.textContent = msg;
-            toast.className = `toast show ${type}`;
-            setTimeout(() => toast.className = 'toast', 3000);
-        }
-
-        // Init
+        /* ===== Init ===== */
         checkHealth();
         setInterval(checkHealth, 30000);
     </script>

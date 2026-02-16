@@ -214,6 +214,100 @@ async def trigger_daily_report():
             pass
 
 
+# ===== YouTube OAuth 2.0 =====
+
+
+@app.get("/api/youtube/oauth/authorize")
+async def youtube_oauth_authorize(
+    redirect_host: str = Query(default="localhost:6003", description="回调地址 host:port"),
+):
+    """获取 YouTube OAuth 2.0 授权 URL
+
+    步骤:
+    1. 访问返回的 auth_url 完成 Google 授权
+    2. 授权后自动回调到 /api/youtube/oauth/callback
+    3. 将返回的 refresh_token 配置到 .env
+    """
+    from urllib.parse import quote
+
+    client_id = settings.youtube_oauth_client_id
+    if not client_id:
+        raise HTTPException(status_code=400, detail="YOUTUBE_OAUTH_CLIENT_ID not configured")
+
+    redirect_uri = f"http://{redirect_host}/api/youtube/oauth/callback"
+
+    auth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={client_id}"
+        f"&redirect_uri={quote(redirect_uri)}"
+        "&response_type=code"
+        "&scope=https://www.googleapis.com/auth/youtube.readonly"
+        "&access_type=offline"
+        "&prompt=consent"
+    )
+
+    return {
+        "auth_url": auth_url,
+        "redirect_uri": redirect_uri,
+        "note": "请确保 Google Cloud Console 的 OAuth 客户端已添加此重定向 URI",
+    }
+
+
+@app.get("/api/youtube/oauth/callback")
+async def youtube_oauth_callback(
+    code: str = Query(None, description="Authorization code from Google"),
+    error: str = Query(None, description="Error from Google"),
+):
+    """YouTube OAuth 2.0 回调
+
+    Google 授权后自动重定向到此端点，换取 refresh_token。
+    """
+    if error:
+        return {"status": "error", "error": error}
+
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code")
+
+    import httpx
+
+    client_id = settings.youtube_oauth_client_id
+    client_secret = settings.youtube_oauth_client_secret
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="YouTube OAuth not configured")
+
+    # 需要和授权时用的 redirect_uri 完全一致
+    # 从 Referer 或默认推断
+    redirect_uri = "http://localhost:6003/api/youtube/oauth/callback"
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": redirect_uri,
+            },
+        )
+
+    if resp.status_code != 200:
+        return {
+            "status": "error",
+            "detail": f"Token exchange failed: {resp.text[:500]}",
+        }
+
+    data = resp.json()
+    refresh_token = data.get("refresh_token", "")
+
+    return {
+        "status": "ok",
+        "refresh_token": refresh_token,
+        "expires_in": data.get("expires_in"),
+        "instructions": f"将以下内容添加到 .env 文件:\nYOUTUBE_OAUTH_REFRESH_TOKEN={refresh_token}",
+    }
+
+
 # ===== 交互式分析 =====
 
 

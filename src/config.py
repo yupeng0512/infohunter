@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # ===== YouTube API 配置 =====
     # YouTube Data API v3 (搜索/详情主力)
     youtube_api_key: str = Field(default="", description="YouTube Data API v3 Key")
+    youtube_oauth_client_id: str = Field(default="", description="YouTube OAuth 2.0 Client ID")
+    youtube_oauth_client_secret: str = Field(default="", description="YouTube OAuth 2.0 Client Secret")
+    youtube_oauth_refresh_token: str = Field(default="", description="YouTube OAuth 2.0 Refresh Token")
 
     # ===== Knot Agent 配置 (AG-UI 协议) =====
     knot_enabled: bool = Field(default=False, description="是否启用 Knot Agent 分析")
@@ -76,7 +79,7 @@ class Settings(BaseSettings):
 
     # ===== 调度配置 =====
     default_fetch_interval: int = Field(
-        default=3600, description="默认采集间隔 (秒)"
+        default=14400, description="默认采集间隔 (秒), 4h=14400"
     )
     min_fetch_gap: int = Field(
         default=300, description="最小采集间隔 (秒)，防止频繁重启时重复采集"

@@ -57,7 +57,7 @@ class Subscription(Base):
     )
 
     fetch_interval: Mapped[int] = mapped_column(
-        Integer, default=3600, comment="采集间隔 (秒)"
+        Integer, default=14400, comment="采集间隔 (秒), 默认 4 小时"
     )
     ai_analysis_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, comment="是否启用 AI 分析"
