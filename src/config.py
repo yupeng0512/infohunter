@@ -39,19 +39,28 @@ class Settings(BaseSettings):
     # ===== Knot Agent 配置 (AG-UI 协议) =====
     knot_enabled: bool = Field(default=False, description="是否启用 Knot Agent 分析")
     knot_api_base_url: str = Field(
-        default="http://localhost:8080",
+        default="http://knot.woa.com",
         description="Knot/AG-UI 平台 API 基础地址",
     )
-    knot_agent_id: str = Field(default="", description="Knot 内容分析 Agent ID")
-    knot_trend_agent_id: str = Field(
-        default="", description="Knot 趋势分析 Agent ID (可选，默认复用 knot_agent_id)"
-    )
-    knot_api_token: str = Field(default="", description="Knot 用户个人 Token (推荐)")
-    knot_agent_token: str = Field(default="", description="Knot 智能体 Token")
-    knot_username: str = Field(
-        default="", description="Knot 用户名 (使用智能体 Token 时需要)"
-    )
-    knot_model: str = Field(default="deepseek-v3.1", description="Knot 调用的模型")
+    knot_model: str = Field(default="claude-4.5-sonnet", description="Knot 调用的模型")
+
+    # 内容分析 Agent
+    knot_content_agent_id: str = Field(default="", description="内容分析 Agent ID")
+    knot_content_agent_key: str = Field(default="", description="内容分析 Agent API Key")
+
+    # 趋势分析 Agent
+    knot_trend_agent_id: str = Field(default="", description="趋势分析 Agent ID")
+    knot_trend_agent_key: str = Field(default="", description="趋势分析 Agent API Key")
+
+    # 博主评估 Agent
+    knot_recommend_agent_id: str = Field(default="", description="博主评估 Agent ID")
+    knot_recommend_agent_key: str = Field(default="", description="博主评估 Agent API Key")
+
+    # 兼容旧配置（向后兼容）
+    knot_agent_id: str = Field(default="", description="[旧] 通用 Agent ID")
+    knot_api_token: str = Field(default="", description="[旧] 用户个人 Token")
+    knot_agent_token: str = Field(default="", description="[旧] 智能体 Token")
+    knot_username: str = Field(default="", description="[旧] 用户名")
 
     # ===== 飞书通知配置 =====
     feishu_webhook_url: str = Field(default="", description="飞书 Webhook URL")

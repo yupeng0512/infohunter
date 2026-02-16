@@ -122,7 +122,11 @@ class TwitterSearchClient(SourceClient):
 
         try:
             data = await self._request("GET", "user/last_tweets", params=params)
+            # 响应可能是 {tweets: [...]} 或 {data: {tweets: [...]}}
             tweets = data.get("tweets", [])
+            if not tweets and isinstance(data.get("data"), dict):
+                inner = data["data"]
+                tweets = inner.get("tweets", [])
             results = [self._parse_tweet(t) for t in tweets[:limit]]
             logger.info(f"Twitter user @{author_id}: found {len(results)} tweets")
             return results

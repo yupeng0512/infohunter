@@ -216,8 +216,9 @@ class InfoHunter:
 
         if sub.type == "keyword" or sub.type == "topic":
             # 关键词/话题搜索 -> TwitterAPI.io
+            # 默认使用 "Top" 获取高赞/高质量内容，减少噪音
             if self.twitter_search:
-                sort = "Latest"
+                sort = "Top"
                 if sub.filters and sub.filters.get("sort"):
                     sort = sub.filters["sort"]
                 items = await self.twitter_search.search(

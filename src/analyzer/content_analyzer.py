@@ -12,7 +12,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from src.config import settings
-from .agui_client import AGUIClient
+from .agui_client import AGUIClient, create_content_agent, create_trend_agent
 
 
 # Prompt 模板目录
@@ -28,13 +28,22 @@ def _load_prompt(name: str) -> str:
 
 
 class ContentAnalyzer:
-    """内容分析器"""
+    """内容分析器
 
-    def __init__(self, agui_client: Optional[AGUIClient] = None):
-        self.client = agui_client
+    使用独立的 Agent 客户端进行内容分析和趋势分析。
+    """
+
+    def __init__(
+        self,
+        content_client: Optional[AGUIClient] = None,
+        trend_client: Optional[AGUIClient] = None,
+    ):
+        self.client = content_client  # 内容分析 Agent
+        self.trend_client = trend_client  # 趋势分析 Agent
         self._initialized = False
 
     def _ensure_client(self) -> bool:
+        """确保内容分析 Agent 可用"""
         if self._initialized:
             return self.client is not None
         self._initialized = True
@@ -42,16 +51,17 @@ class ContentAnalyzer:
         if self.client:
             return True
 
-        if not settings.knot_agent_id:
-            logger.warning("ContentAnalyzer disabled: KNOT_AGENT_ID not configured")
-            return False
-        if not settings.knot_api_token and not settings.knot_agent_token:
-            logger.warning("ContentAnalyzer disabled: no Knot auth configured")
+        if not settings.knot_enabled:
+            logger.info("ContentAnalyzer disabled: KNOT_ENABLED=false")
             return False
 
         try:
-            self.client = AGUIClient()
-            logger.info("ContentAnalyzer initialized")
+            self.client = create_content_agent()
+            if not self.client:
+                logger.warning("ContentAnalyzer disabled: content agent not configured")
+                return False
+            self.trend_client = create_trend_agent()
+            logger.info("ContentAnalyzer initialized with dedicated agents")
             return True
         except Exception as e:
             logger.error(f"Failed to init ContentAnalyzer: {e}")
@@ -129,7 +139,10 @@ class ContentAnalyzer:
         items: list[dict],
         focus: str = "trend_summary",
     ) -> dict[str, Any]:
-        """批量分析内容 (用于日报/周报)"""
+        """批量分析内容 (用于日报/周报)
+
+        使用趋势分析 Agent（如果配置了），否则回退到内容分析 Agent。
+        """
         result = {
             "status": "disabled",
             "analysis": None,
@@ -146,9 +159,12 @@ class ContentAnalyzer:
             result["error"] = "No items to analyze"
             return result
 
+        # 优先使用趋势分析 Agent
+        agent = self.trend_client or self.client
+
         try:
             prompt = self._build_batch_prompt(items, focus)
-            response = await self.client.chat(message=prompt, temperature=0.3)
+            response = await agent.chat(message=prompt, temperature=0.3)
 
             if response["error"]:
                 result["status"] = "error"

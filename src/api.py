@@ -303,11 +303,12 @@ async def analyze_author(data: AnalyzeAuthorRequest):
         else:
             raise HTTPException(status_code=400, detail="source must be 'twitter' or 'youtube'")
 
-        # AI 评估
+        # AI 评估 - 使用博主评估 Agent
         if result["recent_contents"]:
-            analyzer = get_content_analyzer()
+            from src.analyzer.agui_client import AGUIClient, create_recommend_agent
 
-            if not analyzer._ensure_client():
+            recommend_agent = create_recommend_agent()
+            if not recommend_agent:
                 result["analysis"] = {"note": "AI analysis is not configured"}
             else:
                 prompt_text = _build_author_analysis_prompt(
@@ -317,9 +318,7 @@ async def analyze_author(data: AnalyzeAuthorRequest):
                     contents=result["recent_contents"],
                 )
 
-                from src.analyzer.agui_client import AGUIClient
-
-                response = await analyzer.client.chat(message=prompt_text, temperature=0.3)
+                response = await recommend_agent.chat(message=prompt_text, temperature=0.3)
 
                 if response.get("error"):
                     result["error"] = response["error"]
@@ -349,16 +348,26 @@ async def _fetch_twitter_url(url: str) -> dict | None:
 
     tweet_id = match.group(1)
 
-    # 优先 ScrapeCreators
+    # 方案 1: TwitterAPI.io (通过 tweet ID 获取，格式标准)
+    if settings.twitterapi_io_key:
+        from src.sources.twitter_search import TwitterSearchClient
+
+        client = TwitterSearchClient()
+        try:
+            data = await client._request("GET", "tweets", params={"tweet_ids": tweet_id})
+            tweets = data.get("tweets", [])
+            if tweets:
+                return client._parse_tweet(tweets[0])
+        except Exception as e:
+            logger.warning(f"TwitterAPI.io fetch tweet failed: {e}")
+
+    # 方案 2: ScrapeCreators (推文详情，备用)
     if settings.scrapecreators_api_key:
         from src.sources.twitter_detail import TwitterDetailClient
 
         client = TwitterDetailClient()
         detail = await client.get_detail(tweet_id)
         if detail:
-            transcript = await client.get_transcript(tweet_id)
-            if transcript:
-                detail["transcript"] = transcript
             return detail
 
     return None
@@ -418,18 +427,26 @@ async def _fetch_twitter_author(author_id: str) -> tuple[dict | None, list]:
     profile = None
     contents = []
 
+    # 获取 Profile (ScrapeCreators)
     if settings.scrapecreators_api_key:
         from src.sources.twitter_detail import TwitterDetailClient
 
         client = TwitterDetailClient()
         profile = await client.get_profile(author_id)
-        contents = await client.get_author_content(author_id, limit=10)
 
-    if not contents and settings.twitterapi_io_key:
+    # 获取内容 - 优先 TwitterAPI.io（格式标准，内容完整）
+    if settings.twitterapi_io_key:
         from src.sources.twitter_search import TwitterSearchClient
 
-        client = TwitterSearchClient()
-        contents = await client.get_author_content(author_id, limit=10)
+        search_client = TwitterSearchClient()
+        contents = await search_client.get_author_content(author_id, limit=10)
+
+    # 备用: ScrapeCreators
+    if not contents and settings.scrapecreators_api_key:
+        from src.sources.twitter_detail import TwitterDetailClient
+
+        detail_client = TwitterDetailClient()
+        contents = await detail_client.get_author_content(author_id, limit=10)
 
     return profile, contents
 

@@ -81,12 +81,16 @@ class TwitterDetailClient(SourceClient):
             return None
 
     async def get_detail(self, content_id: str, **kwargs) -> Optional[dict[str, Any]]:
-        """获取推文详情"""
+        """获取推文详情
+
+        ScrapeCreators API 需要 url 参数而非 tweet_id。
+        """
         if not self.api_key:
             return None
 
         try:
-            data = await self._request("tweet", {"tweet_id": content_id})
+            tweet_url = f"https://x.com/i/status/{content_id}"
+            data = await self._request("tweet", {"url": tweet_url})
             if data:
                 return self._parse_tweet(data)
             return None
@@ -95,12 +99,16 @@ class TwitterDetailClient(SourceClient):
             return None
 
     async def get_transcript(self, content_id: str, **kwargs) -> Optional[str]:
-        """获取视频推文的 AI 转录字幕"""
+        """获取视频推文的 AI 转录字幕
+
+        ScrapeCreators API 需要 url 参数。
+        """
         if not self.api_key:
             return None
 
         try:
-            data = await self._request("tweet/transcript", {"tweet_id": content_id})
+            tweet_url = f"https://x.com/i/status/{content_id}"
+            data = await self._request("tweet/transcript", {"url": tweet_url})
             return data.get("transcript", None)
         except Exception as e:
             self._log_error("get_transcript", e)
