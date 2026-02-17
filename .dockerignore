@@ -1,0 +1,34 @@
+# Sensitive files
+.env
+.env.*
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.cursor/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Logs (mounted as volume)
+logs/
+*.log
+
+# Docker
+docker-compose*.yml
+Dockerfile
+
+# Documentation
+*.md
+LICENSE
+
+# OS files
+.DS_Store
+Thumbs.db

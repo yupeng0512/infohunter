@@ -134,6 +134,42 @@ class TwitterSearchClient(SourceClient):
             self._log_error("get_author_content", e)
             return []
 
+    async def get_trends(
+        self,
+        woeid: int = 1,
+        count: int = 30,
+    ) -> list[dict[str, Any]]:
+        """获取 Twitter 热门趋势
+
+        Args:
+            woeid: 地区 ID (1=全球, 23424977=美国, 23424868=中国)
+            count: 趋势数量，默认 30
+        """
+        if not self.api_key:
+            return []
+
+        try:
+            params = {"woeid": woeid, "count": count}
+            data = await self._request("GET", "trends", params=params)
+            trends = data.get("trends", [])
+
+            results = []
+            for trend in trends:
+                target = trend.get("target", {})
+                results.append({
+                    "name": trend.get("name", ""),
+                    "query": target.get("query", ""),
+                    "rank": target.get("rank", 0),
+                    "tweet_count": target.get("meta_description", ""),
+                })
+
+            logger.info(f"Twitter trends (woeid={woeid}): {len(results)} trends")
+            return results
+
+        except Exception as e:
+            self._log_error("get_trends", e)
+            return []
+
     def _parse_tweet(self, tweet: dict) -> dict[str, Any]:
         """解析推文数据为标准格式"""
         author = tweet.get("author", {})

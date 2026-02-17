@@ -43,4 +43,3 @@ docker-compose.override.yml
 
 # Cursor
 .cursor/
-.venv/

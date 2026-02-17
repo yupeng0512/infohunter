@@ -60,7 +60,9 @@ class FeishuClient:
             return ""
         string_to_sign = f"{timestamp}\n{self.secret}"
         hmac_code = hmac.new(
-            string_to_sign.encode("utf-8"), digestmod=hashlib.sha256
+            self.secret.encode("utf-8"),
+            string_to_sign.encode("utf-8"),
+            digestmod=hashlib.sha256,
         ).digest()
         return base64.b64encode(hmac_code).decode("utf-8")
 

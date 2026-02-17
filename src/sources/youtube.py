@@ -140,7 +140,7 @@ class YouTubeClient(SourceClient):
 
         配额消耗: 100 单位/次
         """
-        if not self.api_key:
+        if not self.api_key and not self._use_oauth:
             return []
 
         try:
@@ -204,13 +204,12 @@ class YouTubeClient(SourceClient):
     ) -> list[dict[str, Any]]:
         """获取频道最新视频
 
-        配额消耗: 100 单位(搜索) + 1 单位/视频(详情)
+        优先使用 activities API (1 单位) 代替 search (100 单位)。
         """
-        if not self.api_key:
+        if not self.api_key and not self._use_oauth:
             return []
 
         try:
-            # 如果传入的是频道名称而非 ID，先查找频道 ID
             channel_id = author_id
             if not author_id.startswith("UC"):
                 channel_id = await self._resolve_channel_id(author_id)
@@ -218,6 +217,15 @@ class YouTubeClient(SourceClient):
                     logger.warning(f"无法解析频道 ID: {author_id}")
                     return []
 
+            # 优先用 activities API (1 单位 vs search 的 100 单位)
+            results = await self.get_channel_activities(
+                channel_id, limit=limit
+            )
+            if results:
+                return results
+
+            # 回退到 search API
+            logger.debug(f"Activities API 无结果，回退到 search: {channel_id}")
             params = {
                 "part": "snippet",
                 "channelId": channel_id,
@@ -269,7 +277,7 @@ class YouTubeClient(SourceClient):
 
         配额消耗: 1 单位
         """
-        if not self.api_key:
+        if not self.api_key and not self._use_oauth:
             return None
 
         try:
@@ -286,7 +294,7 @@ class YouTubeClient(SourceClient):
 
         配额消耗: 1 单位
         """
-        if not self.api_key:
+        if not self.api_key and not self._use_oauth:
             return None
 
         try:
@@ -317,6 +325,115 @@ class YouTubeClient(SourceClient):
         except Exception as e:
             self._log_error("get_channel_info", e)
             return None
+
+    async def get_trending(
+        self,
+        region_code: str = "US",
+        category_id: str = "28",
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """获取热门视频 (mostPopular)
+
+        配额消耗: 1 单位 (比 search 便宜 100 倍)
+
+        Args:
+            region_code: 地区代码 (US, CN, JP)
+            category_id: 视频类别 (28=Science & Technology, 0=全部)
+            limit: 返回数量
+        """
+        try:
+            params = {
+                "part": "snippet,statistics,contentDetails",
+                "chart": "mostPopular",
+                "regionCode": region_code,
+                "maxResults": min(limit, 50),
+            }
+            if category_id and category_id != "0":
+                params["videoCategoryId"] = category_id
+
+            data = await self._request("videos", params)
+            items = data.get("items", [])
+
+            results = []
+            for item in items:
+                video_id = item.get("id")
+                if not video_id:
+                    continue
+
+                snippet = item.get("snippet", {})
+                stats = item.get("statistics", {})
+
+                results.append({
+                    "content_id": video_id,
+                    "source": "youtube",
+                    "author": snippet.get("channelTitle", ""),
+                    "author_id": snippet.get("channelId", ""),
+                    "title": snippet.get("title", ""),
+                    "content": snippet.get("description", ""),
+                    "url": f"https://www.youtube.com/watch?v={video_id}",
+                    "metrics": {
+                        "views": int(stats.get("viewCount", 0)),
+                        "likes": int(stats.get("likeCount", 0)),
+                        "comments": int(stats.get("commentCount", 0)),
+                    },
+                    "posted_at": self._parse_datetime(snippet.get("publishedAt")),
+                    "raw_data": item,
+                })
+
+            logger.info(f"YouTube trending ({region_code}): {len(results)} videos")
+            return results
+
+        except Exception as e:
+            self._log_error("get_trending", e)
+            return []
+
+    async def get_channel_activities(
+        self,
+        channel_id: str,
+        limit: int = 20,
+        published_after: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """获取频道活动 (新上传等)
+
+        配额消耗: 1 单位 (比 search 便宜 100 倍)
+        适合频道订阅场景。
+
+        Args:
+            channel_id: 频道 ID (UC 开头)
+            limit: 返回数量
+            published_after: ISO 8601 时间过滤
+        """
+        try:
+            params = {
+                "part": "snippet,contentDetails",
+                "channelId": channel_id,
+                "maxResults": min(limit, 50),
+            }
+            if published_after:
+                params["publishedAfter"] = published_after
+
+            data = await self._request("activities", params)
+            items = data.get("items", [])
+
+            video_ids = []
+            for item in items:
+                content_details = item.get("contentDetails", {})
+                upload = content_details.get("upload", {})
+                video_id = upload.get("videoId")
+                if video_id:
+                    video_ids.append(video_id)
+
+            if not video_ids:
+                return []
+
+            details = await self._get_videos_details(video_ids[:limit])
+            results = list(details.values())
+            logger.info(f"YouTube channel activities ({channel_id}): {len(results)} videos")
+            return results
+
+        except Exception as e:
+            self._log_error("get_channel_activities", e)
+            return []
 
     async def _get_videos_details(self, video_ids: list[str]) -> dict[str, dict]:
         """批量获取视频详情

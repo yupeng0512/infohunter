@@ -85,6 +85,50 @@ class Settings(BaseSettings):
         default=300, description="最小采集间隔 (秒)，防止频繁重启时重复采集"
     )
 
+    # ===== 推送配置 (与抓取解耦) =====
+    notify_schedule: str = Field(
+        default="09:00,13:00,18:00",
+        description="推送时间表 (逗号分隔的 HH:MM)，抓取后不立即推送，按此时间汇总推送",
+    )
+    max_notify_per_batch: int = Field(
+        default=20, description="每次推送最大内容数"
+    )
+
+    # ===== 探索流配置 =====
+    explore_enabled: bool = Field(
+        default=True, description="是否启用探索流 (自动发现热门内容)"
+    )
+    explore_fetch_interval: int = Field(
+        default=21600, description="探索流采集间隔 (秒), 6h=21600"
+    )
+    explore_twitter_woeids: str = Field(
+        default="1,23424977,23424868",
+        description="Twitter 趋势地区 WOEID (逗号分隔): 1=全球, 23424977=美国, 23424868=中国",
+    )
+    explore_youtube_regions: str = Field(
+        default="US,CN",
+        description="YouTube 热门视频地区 (逗号分隔)",
+    )
+    explore_youtube_category: str = Field(
+        default="28",
+        description="YouTube 热门视频类别 (28=Science & Technology, 0=全部)",
+    )
+    explore_keywords: str = Field(
+        default="",
+        description="用户自定义探索关键词 (逗号分隔)，如 'AI agent,LLM,AGI'",
+    )
+
+    # ===== API 调用量控制 =====
+    explore_max_trends_per_woeid: int = Field(
+        default=2, description="每个 WOEID 取 Top N 趋势进行搜索 (默认 2，减少 credit 消耗)"
+    )
+    explore_max_search_per_keyword: int = Field(
+        default=5, description="每个关键词搜索返回的最大条数"
+    )
+    twitter_daily_credit_limit: int = Field(
+        default=5000, description="Twitter API 每日 credit 上限 (0=不限制)"
+    )
+
     # ===== 过滤配置 =====
     min_quality_score: float = Field(
         default=0.3, description="最低质量评分阈值 (0-1)"

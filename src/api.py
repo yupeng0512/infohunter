@@ -4,6 +4,7 @@ FastAPI 应用，提供订阅管理、内容查询、系统状态等接口。
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from src.config import settings
@@ -23,6 +25,38 @@ from src.subscription.models import (
     SubscriptionResponse,
     SubscriptionUpdate,
 )
+
+
+# ===== 全局 InfoHunter 实例（用于 trigger 端点复用） =====
+_hunter_instance = None
+_hunter_lock = asyncio.Lock()
+
+
+async def get_hunter():
+    """获取或创建全局 InfoHunter 实例（懒加载 + 线程安全）"""
+    global _hunter_instance
+    if _hunter_instance is None:
+        async with _hunter_lock:
+            if _hunter_instance is None:
+                from src.main import InfoHunter
+                _hunter_instance = InfoHunter()
+                await _hunter_instance.init()
+                logger.info("全局 InfoHunter 实例已初始化")
+    return _hunter_instance
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan: 启动时无需预创建，关闭时清理全局实例"""
+    yield
+    global _hunter_instance
+    if _hunter_instance is not None:
+        try:
+            await _hunter_instance.stop()
+            logger.info("全局 InfoHunter 实例已关闭")
+        except Exception as e:
+            logger.warning(f"关闭 InfoHunter 实例时出错: {e}")
+        _hunter_instance = None
 
 
 class AnalyzeUrlRequest(BaseModel):
@@ -39,12 +73,15 @@ app = FastAPI(
     title="InfoHunter API",
     description="社交媒体 AI 智能订阅监控系统",
     version="1.0.0",
+    lifespan=lifespan,
 )
+
+app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -177,69 +214,206 @@ async def list_unanalyzed(limit: int = Query(50, ge=1, le=200)):
 @app.post("/api/trigger/fetch")
 async def trigger_fetch():
     """手动触发一轮采集"""
-    from src.main import InfoHunter
-
-    hunter = InfoHunter()
     try:
-        await hunter.init()
+        hunter = await get_hunter()
         await hunter.run_fetch_cycle()
         return {"status": "ok", "message": "Fetch cycle triggered"}
     except Exception as e:
         logger.error(f"Trigger fetch failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        try:
-            await hunter.stop()
-        except Exception:
-            pass
 
 
 @app.post("/api/trigger/daily-report")
 async def trigger_daily_report():
     """手动触发日报"""
-    from src.main import InfoHunter
-
-    hunter = InfoHunter()
     try:
-        await hunter.init()
+        hunter = await get_hunter()
         await hunter.send_daily_report()
         return {"status": "ok", "message": "Daily report triggered"}
     except Exception as e:
         logger.error(f"Trigger daily report failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        try:
-            await hunter.stop()
-        except Exception:
-            pass
 
 
-# ===== YouTube OAuth 2.0 =====
+@app.post("/api/trigger/explore")
+async def trigger_explore():
+    """手动触发探索流采集"""
+    try:
+        hunter = await get_hunter()
+        await hunter.run_explore_cycle()
+        return {"status": "ok", "message": "Explore cycle triggered"}
+    except Exception as e:
+        logger.error(f"Trigger explore failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/trigger/notify")
+async def trigger_notify():
+    """手动触发推送"""
+    try:
+        hunter = await get_hunter()
+        await hunter.run_notify_batch()
+        return {"status": "ok", "message": "Notify batch triggered"}
+    except Exception as e:
+        logger.error(f"Trigger notify failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== 系统配置 CRUD =====
+
+
+class SystemConfigUpdate(BaseModel):
+    value: dict = Field(..., description="配置值 (JSON)")
+    description: Optional[str] = Field(None, description="配置描述")
+
+
+@app.get("/api/config")
+async def list_system_config():
+    """获取所有系统配置"""
+    db = get_db()
+    configs = db.list_system_configs()
+    return [
+        {
+            "key": c.config_key,
+            "value": c.config_value,
+            "description": c.description,
+            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        }
+        for c in configs
+    ]
+
+
+@app.get("/api/config/{key}")
+async def get_system_config(key: str):
+    """获取单个系统配置"""
+    db = get_db()
+    config = db.get_system_config(key)
+    if not config:
+        raise HTTPException(status_code=404, detail=f"Config '{key}' not found")
+    return {
+        "key": config.config_key,
+        "value": config.config_value,
+        "description": config.description,
+    }
+
+
+@app.put("/api/config/{key}")
+async def set_system_config(key: str, data: SystemConfigUpdate):
+    """设置系统配置"""
+    db = get_db()
+    config = db.set_system_config(key, data.value, data.description)
+    return {
+        "key": config.config_key,
+        "value": config.config_value,
+        "description": config.description,
+        "status": "ok",
+    }
+
+
+@app.delete("/api/config/{key}")
+async def delete_system_config(key: str):
+    """删除系统配置"""
+    db = get_db()
+    if not db.delete_system_config(key):
+        raise HTTPException(status_code=404, detail=f"Config '{key}' not found")
+    return {"status": "deleted"}
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """获取系统统计信息"""
+    db = get_db()
+    from datetime import timedelta
+
+    now = datetime.now()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_ago = now - timedelta(days=7)
+
+    return {
+        "subscriptions": {
+            "active": db.get_subscription_count("active"),
+            "paused": db.get_subscription_count("paused"),
+            "total": db.get_subscription_count("active") + db.get_subscription_count("paused"),
+        },
+        "contents": {
+            "total": db.get_content_count(),
+            "twitter": db.get_content_count(source="twitter"),
+            "youtube": db.get_content_count(source="youtube"),
+            "today": db.get_content_count_since(today),
+            "this_week": db.get_content_count_since(week_ago),
+        },
+        "notifications": {
+            "pending": db.get_unnotified_count(),
+        },
+        "explore": {
+            "enabled": settings.explore_enabled,
+            "twitter_woeids": settings.explore_twitter_woeids,
+            "youtube_regions": settings.explore_youtube_regions,
+            "max_trends_per_woeid": settings.explore_max_trends_per_woeid,
+            "max_search_per_keyword": settings.explore_max_search_per_keyword,
+        },
+        "schedule": {
+            "fetch_interval": settings.default_fetch_interval,
+            "notify_schedule": settings.notify_schedule,
+            "explore_interval": settings.explore_fetch_interval,
+        },
+        "twitter_credits": {
+            "daily_limit": settings.twitter_daily_credit_limit,
+            "used_today": _hunter_instance._twitter_credits_used if _hunter_instance else 0,
+            "date": _hunter_instance._twitter_credits_date if _hunter_instance else "",
+        },
+    }
+
+
+@app.get("/api/logs/fetch")
+async def list_fetch_logs(
+    limit: int = Query(50, ge=1, le=200),
+    subscription_id: Optional[int] = Query(None),
+):
+    """获取采集日志"""
+    db = get_db()
+    logs = db.get_fetch_logs(limit=limit, subscription_id=subscription_id)
+    return [
+        {
+            "id": log.id,
+            "subscription_id": log.subscription_id,
+            "source": log.source,
+            "status": log.status,
+            "total_fetched": log.total_fetched,
+            "new_items": log.new_items,
+            "filtered_items": log.filtered_items,
+            "error_message": log.error_message,
+            "started_at": log.started_at.isoformat() if log.started_at else None,
+            "duration_seconds": log.duration_seconds,
+        }
+        for log in logs
+    ]
+
+
+# ===== YouTube OAuth 2.0 (桌面应用类型) =====
+
+# 桌面应用 OAuth 使用固定的 redirect_uri，无需在 Google Console 配置回调地址
+_DESKTOP_REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob"
 
 
 @app.get("/api/youtube/oauth/authorize")
-async def youtube_oauth_authorize(
-    redirect_host: str = Query(default="localhost:6003", description="回调地址 host:port"),
-):
-    """获取 YouTube OAuth 2.0 授权 URL
+async def youtube_oauth_authorize():
+    """获取 YouTube OAuth 2.0 授权 URL (桌面应用模式)
 
     步骤:
-    1. 访问返回的 auth_url 完成 Google 授权
-    2. 授权后自动回调到 /api/youtube/oauth/callback
-    3. 将返回的 refresh_token 配置到 .env
+    1. 在浏览器中打开返回的 auth_url
+    2. 完成 Google 账号授权
+    3. Google 页面会显示一个 authorization code，复制它
+    4. 调用 POST /api/youtube/oauth/token?code=<复制的code> 换取 refresh_token
     """
-    from urllib.parse import quote
-
     client_id = settings.youtube_oauth_client_id
     if not client_id:
         raise HTTPException(status_code=400, detail="YOUTUBE_OAUTH_CLIENT_ID not configured")
 
-    redirect_uri = f"http://{redirect_host}/api/youtube/oauth/callback"
-
     auth_url = (
         "https://accounts.google.com/o/oauth2/v2/auth?"
         f"client_id={client_id}"
-        f"&redirect_uri={quote(redirect_uri)}"
+        f"&redirect_uri={_DESKTOP_REDIRECT_URI}"
         "&response_type=code"
         "&scope=https://www.googleapis.com/auth/youtube.readonly"
         "&access_type=offline"
@@ -248,36 +422,27 @@ async def youtube_oauth_authorize(
 
     return {
         "auth_url": auth_url,
-        "redirect_uri": redirect_uri,
-        "note": "请确保 Google Cloud Console 的 OAuth 客户端已添加此重定向 URI",
+        "steps": [
+            "1. 在浏览器中打开上面的 auth_url",
+            "2. 登录 Google 账号并授权",
+            "3. 页面会显示一个 authorization code，复制它",
+            "4. 调用: POST /api/youtube/oauth/token?code=你复制的code",
+            "5. 将返回的 refresh_token 填入 .env",
+        ],
     }
 
 
-@app.get("/api/youtube/oauth/callback")
-async def youtube_oauth_callback(
-    code: str = Query(None, description="Authorization code from Google"),
-    error: str = Query(None, description="Error from Google"),
+@app.post("/api/youtube/oauth/token")
+async def youtube_oauth_exchange_token(
+    code: str = Query(..., description="从 Google 授权页面复制的 authorization code"),
 ):
-    """YouTube OAuth 2.0 回调
-
-    Google 授权后自动重定向到此端点，换取 refresh_token。
-    """
-    if error:
-        return {"status": "error", "error": error}
-
-    if not code:
-        raise HTTPException(status_code=400, detail="Missing authorization code")
-
+    """用 authorization code 换取 refresh_token (桌面应用模式)"""
     import httpx
 
     client_id = settings.youtube_oauth_client_id
     client_secret = settings.youtube_oauth_client_secret
     if not client_id or not client_secret:
         raise HTTPException(status_code=400, detail="YouTube OAuth not configured")
-
-    # 需要和授权时用的 redirect_uri 完全一致
-    # 从 Referer 或默认推断
-    redirect_uri = "http://localhost:6003/api/youtube/oauth/callback"
 
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
@@ -287,18 +452,24 @@ async def youtube_oauth_callback(
                 "client_secret": client_secret,
                 "code": code,
                 "grant_type": "authorization_code",
-                "redirect_uri": redirect_uri,
+                "redirect_uri": _DESKTOP_REDIRECT_URI,
             },
         )
 
     if resp.status_code != 200:
         return {
             "status": "error",
-            "detail": f"Token exchange failed: {resp.text[:500]}",
+            "detail": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:500],
         }
 
     data = resp.json()
     refresh_token = data.get("refresh_token", "")
+
+    if not refresh_token:
+        return {
+            "status": "error",
+            "detail": "未获取到 refresh_token，请确保授权时使用了 prompt=consent",
+        }
 
     return {
         "status": "ok",
@@ -485,8 +656,8 @@ async def _fetch_youtube_url(url: str) -> dict | None:
 
     content_data = None
 
-    # YouTube Data API v3
-    if settings.youtube_api_key:
+    # YouTube Data API v3 (API Key 或 OAuth)
+    if settings.youtube_api_key or settings.youtube_oauth_refresh_token:
         from src.sources.youtube import YouTubeClient
 
         client = YouTubeClient()
@@ -550,7 +721,7 @@ async def _fetch_youtube_author(channel_id: str) -> tuple[dict | None, list]:
     profile = None
     contents = []
 
-    if settings.youtube_api_key:
+    if settings.youtube_api_key or settings.youtube_oauth_refresh_token:
         from src.sources.youtube import YouTubeClient
 
         client = YouTubeClient()

@@ -6,7 +6,6 @@ uvicorn>=0.27.0
 
 # HTTP clients
 httpx>=0.25.0
-requests>=2.31.0
 
 # Database
 sqlalchemy>=2.0.0
@@ -21,18 +20,11 @@ python-dotenv>=1.0.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
 
-# Time handling
-pytz>=2024.1
-
 # Retry logic
 tenacity>=8.2.0
 
 # Logging
 loguru>=0.7.0
-
-# YouTube Data API
-google-api-python-client>=2.100.0
-google-auth-httplib2>=0.1.1
 
 # RSS parsing (for RSSHub fallback)
 feedparser>=6.0.0

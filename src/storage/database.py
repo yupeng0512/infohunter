@@ -138,25 +138,26 @@ class DatabaseManager:
         Returns:
             (Content, is_new)
         """
+        clean = self._clean_content_data(data)
         with self.get_session() as session:
             existing = session.execute(
                 select(Content).where(
                     and_(
-                        Content.content_id == data.get("content_id"),
-                        Content.source == data.get("source"),
+                        Content.content_id == clean.get("content_id"),
+                        Content.source == clean.get("source"),
                     )
                 )
             ).scalar_one_or_none()
 
             if existing:
-                for key, value in data.items():
-                    if key not in ("content_id", "source") and hasattr(existing, key):
+                for key, value in clean.items():
+                    if key not in ("content_id", "source"):
                         setattr(existing, key, value)
                 session.commit()
                 session.refresh(existing)
                 return self._detach(existing, Content), False
             else:
-                content = Content(**data)
+                content = Content(**clean)
                 session.add(content)
                 session.commit()
                 session.refresh(content)
@@ -173,22 +174,23 @@ class DatabaseManager:
 
         with self.get_session() as session:
             for data in items:
+                clean = self._clean_content_data(data)
                 existing = session.execute(
                     select(Content).where(
                         and_(
-                            Content.content_id == data.get("content_id"),
-                            Content.source == data.get("source"),
+                            Content.content_id == clean.get("content_id"),
+                            Content.source == clean.get("source"),
                         )
                     )
                 ).scalar_one_or_none()
 
                 if existing:
-                    for key, value in data.items():
-                        if key not in ("content_id", "source") and hasattr(existing, key):
+                    for key, value in clean.items():
+                        if key not in ("content_id", "source"):
                             setattr(existing, key, value)
                     updated_count += 1
                 else:
-                    content = Content(**data)
+                    content = Content(**clean)
                     session.add(content)
                     new_count += 1
 
@@ -375,7 +377,105 @@ class DatabaseManager:
                 query = query.where(Subscription.status == status)
             return session.execute(query).scalar() or 0
 
+    # ===== 系统配置 =====
+
+    def list_system_configs(self) -> list[SystemConfig]:
+        """列出所有系统配置"""
+        with self.get_session() as session:
+            configs = session.execute(
+                select(SystemConfig).order_by(SystemConfig.config_key)
+            ).scalars().all()
+            return [self._detach(c, SystemConfig) for c in configs]
+
+    def get_system_config(self, key: str) -> Optional[SystemConfig]:
+        """获取单个系统配置"""
+        with self.get_session() as session:
+            config = session.execute(
+                select(SystemConfig).where(SystemConfig.config_key == key)
+            ).scalar_one_or_none()
+            if config:
+                return self._detach(config, SystemConfig)
+            return None
+
+    def set_system_config(
+        self, key: str, value: dict, description: Optional[str] = None
+    ) -> SystemConfig:
+        """设置系统配置 (upsert)"""
+        with self.get_session() as session:
+            existing = session.execute(
+                select(SystemConfig).where(SystemConfig.config_key == key)
+            ).scalar_one_or_none()
+
+            if existing:
+                existing.config_value = value
+                if description is not None:
+                    existing.description = description
+                session.commit()
+                session.refresh(existing)
+                return self._detach(existing, SystemConfig)
+            else:
+                config = SystemConfig(
+                    config_key=key,
+                    config_value=value,
+                    description=description,
+                )
+                session.add(config)
+                session.commit()
+                session.refresh(config)
+                return self._detach(config, SystemConfig)
+
+    def delete_system_config(self, key: str) -> bool:
+        """删除系统配置"""
+        with self.get_session() as session:
+            config = session.execute(
+                select(SystemConfig).where(SystemConfig.config_key == key)
+            ).scalar_one_or_none()
+            if not config:
+                return False
+            session.delete(config)
+            session.commit()
+            return True
+
+    # ===== 额外统计 =====
+
+    def get_content_count_since(self, since: datetime) -> int:
+        """获取指定时间之后的内容数"""
+        with self.get_session() as session:
+            return session.execute(
+                select(func.count(Content.id)).where(Content.created_at >= since)
+            ).scalar() or 0
+
+    def get_unnotified_count(self) -> int:
+        """获取未通知内容数"""
+        with self.get_session() as session:
+            return session.execute(
+                select(func.count(Content.id)).where(Content.notified == False)
+            ).scalar() or 0
+
+    def get_fetch_logs(
+        self,
+        limit: int = 50,
+        subscription_id: Optional[int] = None,
+    ) -> list[FetchLog]:
+        """获取采集日志"""
+        with self.get_session() as session:
+            query = (
+                select(FetchLog)
+                .order_by(FetchLog.started_at.desc())
+                .limit(limit)
+            )
+            if subscription_id is not None:
+                query = query.where(FetchLog.subscription_id == subscription_id)
+            logs = session.execute(query).scalars().all()
+            return [self._detach(log, FetchLog) for log in logs]
+
     # ===== 辅助方法 =====
+
+    @staticmethod
+    def _clean_content_data(data: dict) -> dict:
+        """过滤 Content 模型不支持的字段，防止 SQLAlchemy TypeError"""
+        valid_columns = {c.name for c in Content.__table__.columns}
+        return {k: v for k, v in data.items() if k in valid_columns}
 
     def _detach(self, obj, model_class):
         """分离 ORM 对象，使其可在会话外使用"""
