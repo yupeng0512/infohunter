@@ -474,7 +474,10 @@ async def get_stats():
         },
         "schedule": {
             "fetch_interval": settings.default_fetch_interval,
-            "notify_schedule": notify_schedule_cfg.get("schedule", settings.notify_schedule),
+            "notify_schedule": (
+                hunter.dynamic_notify_schedule if hunter
+                else notify_schedule_cfg.get("schedule", settings.notify_schedule)
+            ),
             "explore_interval": keyword_interval,
         },
         "twitter_credits": {
