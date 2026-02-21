@@ -86,7 +86,8 @@ InfoHunter 是一个 AI 驱动的社交媒体智能订阅监控系统，帮助�
 | 数据源 | 用途 | 费用 |
 |--------|------|------|
 | [TwitterAPI.io](https://twitterapi.io) | Twitter 关键词搜索（主力） | ~$30/月 |
-| [ScrapeCreators](https://scrapecreators.com) | Twitter/YouTube 详情、字幕 | 按量付费 |
+| [ScrapeCreators](https://scrapecreators.com) | Twitter/YouTube 详情 | 按量付费 |
+| [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) | YouTube 字幕提取（主力，ScrapeCreators 备用） | 免费 |
 | [YouTube Data API v3](https://console.cloud.google.com) | YouTube 搜索、频道信息 | 免费额度 |
 | [RSSHub](https://docs.rsshub.app) | 博主时间线备用方案 | 免费（自部署） |
 
@@ -296,6 +297,7 @@ infohunter/
 │   │   ├── twitter_detail.py  # ScrapeCreators Twitter
 │   │   ├── youtube.py         # YouTube Data API v3
 │   │   ├── youtube_transcript.py  # ScrapeCreators YouTube
+│   │   ├── transcript_service.py # 字幕提取服务（主: youtube-transcript-api, 备: ScrapeCreators）
 │   │   └── rss.py             # RSSHub / RSS Feed
 │   ├── analyzer/              # AI 分析
 │   │   ├── agui_client.py     # AG-UI 协议客户端
