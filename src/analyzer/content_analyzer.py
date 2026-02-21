@@ -75,6 +75,7 @@ class ContentAnalyzer:
         author: Optional[str] = None,
         metrics: Optional[dict] = None,
         transcript: Optional[str] = None,
+        analysis_focus: Optional[str] = None,
     ) -> dict[str, Any]:
         """分析单条内容
 
@@ -107,6 +108,7 @@ class ContentAnalyzer:
                 author=author,
                 metrics=metrics,
                 transcript=transcript,
+                analysis_focus=analysis_focus,
             )
 
             response = await self.client.chat(message=prompt, temperature=0.3)
@@ -197,8 +199,17 @@ class ContentAnalyzer:
         author: Optional[str] = None,
         metrics: Optional[dict] = None,
         transcript: Optional[str] = None,
+        analysis_focus: Optional[str] = None,
     ) -> str:
         """构建内容分析 Prompt"""
+        focus_map = {
+            "opportunity": "侧重发现机会：识别潜在创业方向、技术应用或投资机会",
+            "frontier": "侧重前沿动态：提炼关键技术演进方向和行业变化",
+            "knowledge": "侧重知识拓展：指出值得深入学习的知识点和技术原理",
+            "comprehensive": "综合分析：机会发现 + 前沿动态 + 知识拓展",
+        }
+        focus_text = focus_map.get(analysis_focus or "", focus_map["comprehensive"])
+
         custom_prompt = _load_prompt("content_analysis")
         if custom_prompt:
             return custom_prompt.format(
@@ -208,6 +219,7 @@ class ContentAnalyzer:
                 author=author or "",
                 metrics=json.dumps(metrics or {}, ensure_ascii=False),
                 transcript=transcript or "",
+                analysis_focus=focus_text,
             )
 
         # 默认 Prompt

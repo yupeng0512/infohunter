@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -98,6 +98,15 @@ def get_db():
     return _db
 
 
+def _get_config_value(db, key: str):
+    """从 SystemConfig 数据库中读取配置值，返回 dict 或 None"""
+    try:
+        cfg = db.get_system_config(key)
+        return cfg.config_value if cfg else None
+    except Exception:
+        return None
+
+
 def get_sub_mgr():
     global _sub_manager
     if _sub_manager is None:
@@ -126,6 +135,7 @@ async def health():
         "contents": db.get_content_count(),
         "twitter_contents": db.get_content_count(source="twitter"),
         "youtube_contents": db.get_content_count(source="youtube"),
+        "blog_contents": db.get_content_count(source="blog"),
     }
 
 
@@ -142,12 +152,13 @@ async def create_subscription(data: SubscriptionCreate):
 
 @app.get("/api/subscriptions", response_model=list[SubscriptionResponse])
 async def list_subscriptions(
-    source: Optional[str] = Query(None, description="过滤数据源: twitter/youtube"),
+    source: Optional[str] = Query(None, description="过滤数据源: twitter/youtube/blog"),
+    type: Optional[str] = Query(None, description="过滤类型: keyword/author/topic/feed"),
     status: str = Query("active", description="过滤状态: active/paused/deleted"),
 ):
     """列出订阅"""
     mgr = get_sub_mgr()
-    subs = mgr.list_all(source=source, status=status)
+    subs = mgr.list_all(source=source, sub_type=type, status=status)
     return [SubscriptionResponse.model_validate(s) for s in subs]
 
 
@@ -178,6 +189,78 @@ async def delete_subscription(sub_id: int):
     if not mgr.delete(sub_id):
         raise HTTPException(status_code=404, detail="Subscription not found")
     return {"status": "deleted"}
+
+
+# ===== OPML 导入 =====
+
+
+class OPMLImportResponse(BaseModel):
+    total_feeds: int = Field(..., description="OPML 中解析到的 Feed 数量")
+    created: int = Field(..., description="新创建的订阅数")
+    skipped: int = Field(..., description="跳过的 (已存在) 数量")
+    errors: list[str] = Field(default_factory=list, description="导入错误列表")
+
+
+@app.post("/api/subscriptions/import/opml", response_model=OPMLImportResponse)
+async def import_opml(
+    file: UploadFile = File(..., description="OPML 文件"),
+    fetch_interval: int = Query(43200, ge=300, le=604800, description="采集间隔 (秒), 默认 12h"),
+    ai_analysis_enabled: bool = Query(True, description="是否启用 AI 分析"),
+):
+    """导入 OPML 文件，批量创建 Blog/RSS 订阅"""
+    from src.sources.rss import RSSClient
+
+    content = await file.read()
+    try:
+        opml_text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="文件编码错误，请使用 UTF-8 编码的 OPML 文件")
+
+    feeds = RSSClient.parse_opml(opml_text)
+    if not feeds:
+        raise HTTPException(status_code=400, detail="未从 OPML 中解析到任何 RSS Feed")
+
+    db = get_db()
+    mgr = get_sub_mgr()
+    existing_subs = mgr.list_all(source="blog", status="active")
+    existing_targets = {s.target for s in existing_subs}
+    paused_subs = mgr.list_all(source="blog", status="paused")
+    existing_targets.update(s.target for s in paused_subs)
+
+    created = 0
+    skipped = 0
+    errors = []
+
+    for feed in feeds:
+        xml_url = feed["xml_url"]
+        title = feed["title"] or feed["html_url"] or xml_url
+
+        if xml_url in existing_targets:
+            skipped += 1
+            continue
+
+        try:
+            mgr.create({
+                "name": title,
+                "source": "blog",
+                "type": "feed",
+                "target": xml_url,
+                "fetch_interval": fetch_interval,
+                "ai_analysis_enabled": ai_analysis_enabled,
+                "notification_enabled": True,
+                "filters": {"html_url": feed["html_url"]} if feed["html_url"] else None,
+            })
+            created += 1
+        except Exception as e:
+            errors.append(f"{title}: {str(e)[:80]}")
+
+    logger.info(f"OPML 导入完成: 解析 {len(feeds)} 个 Feed, 创建 {created}, 跳过 {skipped}")
+    return OPMLImportResponse(
+        total_feeds=len(feeds),
+        created=created,
+        skipped=skipped,
+        errors=errors[:20],
+    )
 
 
 # ===== 内容查询 =====
@@ -211,15 +294,28 @@ async def list_unanalyzed(limit: int = Query(50, ge=1, le=200)):
 # ===== 手动触发 =====
 
 
-@app.post("/api/trigger/fetch")
-async def trigger_fetch():
-    """手动触发一轮采集"""
+@app.post("/api/trigger/smart-collect")
+async def trigger_smart_collect():
+    """智能采集：订阅采集 + 探索发现 + AI 分析（一键完成全链路）"""
     try:
         hunter = await get_hunter()
-        await hunter.run_fetch_cycle()
-        return {"status": "ok", "message": "Fetch cycle triggered"}
+        results = {"fetch": 0, "explore": 0, "analyzed": 0}
+
+        if hunter.dynamic_subscription_enabled:
+            await hunter.run_fetch_cycle()
+            results["fetch"] = 1
+
+        if hunter.dynamic_explore_enabled:
+            await hunter.run_explore_cycle()
+            results["explore"] = 1
+
+        if hunter.analyzer:
+            await hunter.run_ai_analysis_job()
+            results["analyzed"] = 1
+
+        return {"status": "ok", "message": "Smart collect completed", "results": results}
     except Exception as e:
-        logger.error(f"Trigger fetch failed: {e}")
+        logger.error(f"Smart collect failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -232,30 +328,6 @@ async def trigger_daily_report():
         return {"status": "ok", "message": "Daily report triggered"}
     except Exception as e:
         logger.error(f"Trigger daily report failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/trigger/explore")
-async def trigger_explore():
-    """手动触发探索流采集"""
-    try:
-        hunter = await get_hunter()
-        await hunter.run_explore_cycle()
-        return {"status": "ok", "message": "Explore cycle triggered"}
-    except Exception as e:
-        logger.error(f"Trigger explore failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/trigger/notify")
-async def trigger_notify():
-    """手动触发推送"""
-    try:
-        hunter = await get_hunter()
-        await hunter.run_notify_batch()
-        return {"status": "ok", "message": "Notify batch triggered"}
-    except Exception as e:
-        logger.error(f"Trigger notify failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -329,40 +401,222 @@ async def get_stats():
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_ago = now - timedelta(days=7)
 
+    # Dynamically read from running instance when available
+    hunter = _hunter_instance
+
+    explore_cfg = _get_config_value(db, "explore_config") or {}
+    sub_cfg = _get_config_value(db, "subscription_config") or {}
+    notify_cfg = _get_config_value(db, "notify_config") or {}
+    notify_schedule_cfg = _get_config_value(db, "notify_schedule") or {}
+
+    trend_interval = int(explore_cfg.get("trend_interval", settings.explore_trend_interval))
+    keyword_interval = int(explore_cfg.get("keyword_interval", settings.explore_fetch_interval))
+    max_trends = int(explore_cfg.get("max_trends_per_woeid", settings.explore_max_trends_per_woeid))
+    woeids_str = explore_cfg.get("twitter_woeids", settings.explore_twitter_woeids)
+    num_woeids = len([w.strip() for w in woeids_str.split(",") if w.strip()]) if woeids_str else 0
+    kw_str = (explore_cfg.get("keywords") or "")
+    if not kw_str:
+        kw_cfg = _get_config_value(db, "explore_keywords") or {}
+        kw_str = kw_cfg.get("keywords", ",".join(settings.explore_keywords))
+    num_keywords = len([k.strip() for k in kw_str.split(",") if k.strip()]) if kw_str else 0
+    limit_cfg = _get_config_value(db, "twitter_credit_limit") or {}
+    credit_limit = limit_cfg.get("daily_limit")
+    if credit_limit is None:
+        credit_limit = explore_cfg.get("twitter_daily_credit_limit")
+    if credit_limit is None:
+        credit_limit = settings.twitter_daily_credit_limit
+    credit_limit = int(credit_limit)
+
+    trend_credits_per_run = num_woeids * 450 + num_woeids * max_trends * 75
+    trend_runs_per_day = max(86400 // trend_interval, 1) if trend_interval > 0 else 0
+    keyword_credits_per_run = num_keywords * 75
+    keyword_runs_per_day = max(86400 // keyword_interval, 1) if keyword_interval > 0 else 0
+    sub_count = db.get_subscription_count("active")
+    twitter_sub_count = db.get_subscription_count("active", source="twitter")
+    sub_twitter_credits_day = twitter_sub_count * 75 * max(86400 // settings.default_fetch_interval, 1)
+
+    daily_estimate = (
+        trend_credits_per_run * trend_runs_per_day
+        + keyword_credits_per_run * keyword_runs_per_day
+        + sub_twitter_credits_day
+    )
+
     return {
         "subscriptions": {
-            "active": db.get_subscription_count("active"),
+            "active": sub_count,
             "paused": db.get_subscription_count("paused"),
-            "total": db.get_subscription_count("active") + db.get_subscription_count("paused"),
+            "total": sub_count + db.get_subscription_count("paused"),
         },
         "contents": {
             "total": db.get_content_count(),
             "twitter": db.get_content_count(source="twitter"),
             "youtube": db.get_content_count(source="youtube"),
+            "blog": db.get_content_count(source="blog"),
             "today": db.get_content_count_since(today),
             "this_week": db.get_content_count_since(week_ago),
         },
         "notifications": {
             "pending": db.get_unnotified_count(),
         },
+        "modules": {
+            "subscription_enabled": sub_cfg.get("enabled", settings.subscription_enabled),
+            "explore_enabled": explore_cfg.get("enabled", settings.explore_enabled),
+            "notify_enabled": notify_cfg.get("enabled", settings.notify_enabled),
+        },
         "explore": {
-            "enabled": settings.explore_enabled,
-            "twitter_woeids": settings.explore_twitter_woeids,
-            "youtube_regions": settings.explore_youtube_regions,
-            "max_trends_per_woeid": settings.explore_max_trends_per_woeid,
-            "max_search_per_keyword": settings.explore_max_search_per_keyword,
+            "enabled": explore_cfg.get("enabled", settings.explore_enabled),
+            "trend_interval": trend_interval,
+            "keyword_interval": keyword_interval,
+            "twitter_woeids": woeids_str,
+            "youtube_regions": explore_cfg.get("youtube_regions", settings.explore_youtube_regions),
+            "max_trends_per_woeid": max_trends,
+            "max_search_per_keyword": int(explore_cfg.get("max_search_per_keyword", settings.explore_max_search_per_keyword)),
         },
         "schedule": {
             "fetch_interval": settings.default_fetch_interval,
-            "notify_schedule": settings.notify_schedule,
-            "explore_interval": settings.explore_fetch_interval,
+            "notify_schedule": notify_schedule_cfg.get("schedule", settings.notify_schedule),
+            "explore_interval": keyword_interval,
         },
         "twitter_credits": {
-            "daily_limit": settings.twitter_daily_credit_limit,
-            "used_today": _hunter_instance._twitter_credits_used if _hunter_instance else 0,
-            "date": _hunter_instance._twitter_credits_date if _hunter_instance else "",
+            "daily_limit": credit_limit,
+            "used_today": hunter._twitter_credits_used if hunter else 0,
+            "date": hunter._twitter_credits_date if hunter else "",
+            "estimated_daily": daily_estimate,
+            "breakdown": {
+                "trends": f"{trend_credits_per_run}/轮 × {trend_runs_per_day}轮/天 = {trend_credits_per_run * trend_runs_per_day}",
+                "keywords": f"{keyword_credits_per_run}/轮 × {keyword_runs_per_day}轮/天 = {keyword_credits_per_run * keyword_runs_per_day}",
+                "subscriptions": f"{twitter_sub_count}个Twitter订阅 × 75/次 × {max(86400 // settings.default_fetch_interval, 1)}次/天 = {sub_twitter_credits_day}",
+            },
         },
     }
+
+
+# ===== 成本监控 =====
+
+
+@app.get("/api/credits/summary")
+async def get_credit_summary(
+    days: int = Query(30, ge=1, le=365, description="统计最近 N 天"),
+):
+    """Credit 成本看板汇总数据"""
+    db = get_db()
+    from datetime import timedelta
+
+    now = datetime.now()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_ago = now - timedelta(days=7)
+    month_ago = now - timedelta(days=30)
+    range_start = now - timedelta(days=days)
+
+    hunter = _hunter_instance
+
+    # 读取动态 credit limit（优先独立 key → explore_config fallback → .env）
+    limit_cfg = _get_config_value(db, "twitter_credit_limit") or {}
+    credit_limit = limit_cfg.get("daily_limit")
+    if credit_limit is None:
+        explore_cfg = _get_config_value(db, "explore_config") or {}
+        credit_limit = explore_cfg.get("twitter_daily_credit_limit")
+    if credit_limit is None:
+        credit_limit = settings.twitter_daily_credit_limit
+    credit_limit = int(credit_limit)
+
+    used_today = int(db.get_credit_usage_today(source="twitter"))
+    daily_totals = db.get_credit_daily_totals(days=days, source="twitter")
+    for d in daily_totals:
+        d["total_credits"] = int(d["total_credits"])
+
+    used_week = sum(
+        d["total_credits"]
+        for d in daily_totals
+        if d["date"] >= week_ago.strftime("%Y-%m-%d")
+    )
+    used_month = sum(
+        d["total_credits"]
+        for d in daily_totals
+        if d["date"] >= month_ago.strftime("%Y-%m-%d")
+    )
+
+    by_operation_today = db.get_credit_usage_by_operation(since=today, source="twitter")
+    by_operation_week = db.get_credit_usage_by_operation(since=week_ago, source="twitter")
+    for lst in (by_operation_today, by_operation_week):
+        for item in lst:
+            item["total_credits"] = int(item["total_credits"])
+
+    avg_daily = (used_month / 30) if used_month else 0
+    estimated_monthly_cost = float(avg_daily) * 30 / 100000 * 9.9
+
+    return {
+        "today": {
+            "used": used_today,
+            "limit": credit_limit,
+            "remaining": max(credit_limit - used_today, 0) if credit_limit > 0 else None,
+            "percentage": round(used_today / credit_limit * 100, 1) if credit_limit > 0 else 0,
+        },
+        "period": {
+            "week": used_week,
+            "month": used_month,
+            "avg_daily": round(avg_daily),
+        },
+        "cost_estimate": {
+            "monthly_credits": round(avg_daily * 30),
+            "monthly_usd": round(estimated_monthly_cost, 2),
+            "plan": "$9.9/100K credits",
+        },
+        "daily_trend": daily_totals,
+        "by_operation": {
+            "today": by_operation_today,
+            "week": by_operation_week,
+        },
+        "in_memory": {
+            "used_today": hunter._twitter_credits_used if hunter else 0,
+            "date": hunter._twitter_credits_date if hunter else "",
+        },
+    }
+
+
+@app.get("/api/credits/records")
+async def get_credit_records(
+    limit: int = Query(50, ge=1, le=200),
+    source: Optional[str] = Query(None, description="过滤 API 来源: twitter"),
+):
+    """获取最近的 credit 消耗明细记录"""
+    db = get_db()
+    records = db.get_credit_recent_records(limit=limit, source=source)
+    return [
+        {
+            "id": r.id,
+            "source": r.source,
+            "operation": r.operation,
+            "credits": r.credits,
+            "detail": r.detail,
+            "context": r.context,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in records
+    ]
+
+
+@app.get("/api/credits/daily")
+async def get_credit_daily(
+    days: int = Query(30, ge=1, le=90),
+    source: Optional[str] = Query(None),
+):
+    """获取每日 credit 消耗趋势数据"""
+    db = get_db()
+    return db.get_credit_daily_totals(days=days, source=source)
+
+
+@app.get("/api/credits/breakdown")
+async def get_credit_breakdown(
+    days: int = Query(7, ge=1, le=90),
+    source: Optional[str] = Query(None),
+):
+    """获取按操作类型+上下文分组的 credit 消耗分布"""
+    db = get_db()
+    from datetime import timedelta
+
+    since = datetime.now() - timedelta(days=days)
+    return db.get_credit_usage_range(since=since, source=source)
 
 
 @app.get("/api/logs/fetch")

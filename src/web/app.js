@@ -16,6 +16,7 @@ function switchTab(tab) {
     document.getElementById(tab).classList.add('active');
     if (tab === 'subscriptions') loadSubscriptions();
     if (tab === 'contents') loadContents();
+    if (tab === 'costs') { loadCostData(); loadCostRecords(); }
     if (tab === 'settings') { loadSettings(); loadFetchLogs(); }
 }
 
@@ -30,6 +31,7 @@ async function checkHealth() {
         document.getElementById('stat-total').textContent = d.contents || 0;
         document.getElementById('stat-twitter').textContent = d.twitter_contents || 0;
         document.getElementById('stat-youtube').textContent = d.youtube_contents || 0;
+        document.getElementById('stat-blog').textContent = d.blog_contents || 0;
     } catch {
         document.getElementById('status-text').textContent = '离线';
         document.getElementById('status-dot').style.background = 'var(--rose)';
@@ -37,18 +39,29 @@ async function checkHealth() {
 }
 
 /* ===== Subscriptions ===== */
+let _subFilterType = '';
+
+function filterSubs(btn) {
+    _subFilterType = btn.dataset.filter;
+    document.querySelectorAll('.sub-filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadSubscriptions();
+}
+
 async function loadSubscriptions() {
     const el = document.getElementById('sub-list');
     el.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
     try {
-        const r = await fetch(`${API}/api/subscriptions`);
+        const p = new URLSearchParams({status:'active'});
+        if (_subFilterType) p.set('type', _subFilterType);
+        const r = await fetch(`${API}/api/subscriptions?${p}`);
         const subs = await r.json();
         if (!subs.length) {
             el.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg><p>暂无订阅，点击上方「新建订阅」开始</p></div>';
             return;
         }
         el.innerHTML = subs.map(s => {
-            const typeLabel = {keyword:'关键词',author:'博主',topic:'话题'}[s.type]||s.type;
+            const typeLabel = {keyword:'关键词',author:'博主',topic:'话题',feed:'RSS'}[s.type]||s.type;
             const interval = s.fetch_interval >= 3600 ? `${s.fetch_interval/3600}h` : `${s.fetch_interval/60}m`;
             return `<div class="sub-row">
                 <div class="sub-info">
@@ -58,7 +71,7 @@ async function loadSubscriptions() {
                         ${s.name}
                     </div>
                     <div class="sub-meta">
-                        <span>${s.target}</span>
+                        <span title="${esc(s.target)}">${s.target.length > 50 ? s.target.substring(0,50)+'...' : s.target}</span>
                         <span>每 ${interval}</span>
                         <span class="tag tag-${s.status}">${s.status}</span>
                         ${s.last_fetched_at ? `<span>上次: ${new Date(s.last_fetched_at).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}
@@ -185,11 +198,28 @@ async function analyzeAuthor() {
 function showCreateModal() { document.getElementById('create-modal').classList.add('active'); }
 function closeModal() { document.getElementById('create-modal').classList.remove('active'); }
 
+function updateSourceOptions() {
+    const source = document.getElementById('sub-source').value;
+    const typeSelect = document.getElementById('sub-type');
+    if (source === 'blog') {
+        typeSelect.value = 'feed';
+        typeSelect.disabled = true;
+    } else {
+        typeSelect.disabled = false;
+        if (typeSelect.value === 'feed') typeSelect.value = 'keyword';
+    }
+    updateTargetHint();
+}
+
 function updateTargetHint() {
     const type = document.getElementById('sub-type').value;
+    const source = document.getElementById('sub-source').value;
     const input = document.getElementById('sub-target');
     const hint = document.getElementById('target-hint');
-    if (type === 'keyword') {
+    if (type === 'feed' || source === 'blog') {
+        input.placeholder = 'https://example.com/feed.xml';
+        hint.textContent = '完整的 RSS/Atom Feed URL，如: https://simonwillison.net/atom/everything/';
+    } else if (type === 'keyword') {
         input.placeholder = 'AI agent OR LLM';
         hint.textContent = '支持 OR 语法，如: "AI agent" OR "LLM" from:sama';
     } else if (type === 'author') {
@@ -234,28 +264,20 @@ async function deleteSub(id) {
 }
 
 /* ===== Triggers ===== */
-async function triggerFetch() {
-    showToast('正在采集...','success');
-    try { await fetch(`${API}/api/trigger/fetch`,{method:'POST'}); showToast('采集完成','success'); checkHealth(); }
-    catch { showToast('采集失败','error'); }
+async function triggerSmartCollect() {
+    showToast('智能采集中：采集 → 分析 → 入库...', 'success');
+    try {
+        await fetch(`${API}/api/trigger/smart-collect`, {method:'POST'});
+        showToast('智能采集完成', 'success');
+        checkHealth();
+        loadStats();
+    } catch { showToast('采集失败','error'); }
 }
 
 async function triggerDailyReport() {
     showToast('正在生成日报...','success');
     try { await fetch(`${API}/api/trigger/daily-report`,{method:'POST'}); showToast('日报已发送','success'); }
     catch { showToast('生成失败','error'); }
-}
-
-async function triggerExplore() {
-    showToast('正在探索...','success');
-    try { await fetch(`${API}/api/trigger/explore`,{method:'POST'}); showToast('探索完成','success'); checkHealth(); loadStats(); }
-    catch { showToast('探索失败','error'); }
-}
-
-async function triggerNotify() {
-    showToast('正在推送...','success');
-    try { await fetch(`${API}/api/trigger/notify`,{method:'POST'}); showToast('推送完成','success'); loadStats(); }
-    catch { showToast('推送失败','error'); }
 }
 
 /* ===== Stats ===== */
@@ -268,25 +290,36 @@ async function loadStats() {
         if (el('stat-today')) el('stat-today').textContent = d.contents?.today || 0;
         if (el('stat-explore')) el('stat-explore').textContent = d.explore?.enabled ? '已启用' : '未启用';
         if (el('stat-schedule')) el('stat-schedule').textContent = d.schedule?.notify_schedule || '—';
+        if (d.twitter_credits) {
+            const tc = d.twitter_credits;
+            if (el('stat-credits-used'))
+                el('stat-credits-used').textContent =
+                    `${tc.used_today} / ${tc.daily_limit || '∞'} (预估日消耗: ${tc.estimated_daily || '—'})`;
+        }
     } catch {}
 }
 
 /* ===== Settings ===== */
 async function loadSettings() {
+    // Load defaults from stats
     try {
         const r = await fetch(`${API}/api/stats`);
         const d = await r.json();
-        document.getElementById('set-notify-schedule').value = d.schedule?.notify_schedule || '09:00,13:00,18:00';
-        document.getElementById('set-notify-batch').value = 20;
+        document.getElementById('set-notify-schedule').value = d.schedule?.notify_schedule || '09:00,21:00';
         document.getElementById('set-notify-threshold').value = d.schedule?.notify_threshold || 0.6;
         document.getElementById('set-explore-enabled').checked = d.explore?.enabled !== false;
-        document.getElementById('set-explore-interval').value = d.schedule?.explore_interval || 21600;
+        if (d.explore?.trend_interval) document.getElementById('set-explore-trend-interval').value = d.explore.trend_interval;
+        if (d.explore?.keyword_interval) document.getElementById('set-explore-keyword-interval').value = d.explore.keyword_interval;
         document.getElementById('set-explore-woeids').value = d.explore?.twitter_woeids || '1,23424977,23424868';
         document.getElementById('set-explore-yt-regions').value = d.explore?.youtube_regions || 'US,CN';
         document.getElementById('set-fetch-interval').value = d.schedule?.fetch_interval || 14400;
+        if (d.modules) {
+            document.getElementById('set-sub-enabled').checked = d.modules.subscription_enabled !== false;
+            document.getElementById('set-notify-enabled').checked = d.modules.notify_enabled !== false;
+        }
     } catch {}
 
-    // Load from system config (overrides defaults above)
+    // Load from system config (overrides defaults)
     try {
         const r = await fetch(`${API}/api/config`);
         const configs = await r.json();
@@ -301,15 +334,34 @@ async function loadSettings() {
             if (c.key === 'min_quality_score') {
                 document.getElementById('set-min-quality').value = c.value?.value || 0.3;
             }
+            if (c.key === 'analysis_focus') {
+                document.getElementById('set-analysis-focus').value = c.value?.focus || 'comprehensive';
+            }
+            if (c.key === 'subscription_config') {
+                const v = c.value || {};
+                if (v.enabled !== undefined) document.getElementById('set-sub-enabled').checked = v.enabled;
+            }
+            if (c.key === 'notify_config') {
+                const v = c.value || {};
+                if (v.enabled !== undefined) document.getElementById('set-notify-enabled').checked = v.enabled;
+            }
             if (c.key === 'explore_config') {
                 const v = c.value || {};
                 if (v.enabled !== undefined) document.getElementById('set-explore-enabled').checked = v.enabled;
                 if (v.twitter_woeids) document.getElementById('set-explore-woeids').value = v.twitter_woeids;
                 if (v.youtube_regions) document.getElementById('set-explore-yt-regions').value = v.youtube_regions;
-                if (v.interval) document.getElementById('set-explore-interval').value = v.interval;
+                if (v.trend_interval) document.getElementById('set-explore-trend-interval').value = v.trend_interval;
+                if (v.keyword_interval) document.getElementById('set-explore-keyword-interval').value = v.keyword_interval;
                 if (v.max_trends_per_woeid) document.getElementById('set-explore-max-trends').value = v.max_trends_per_woeid;
                 if (v.max_search_per_keyword) document.getElementById('set-explore-search-limit').value = v.max_search_per_keyword;
-                if (v.twitter_daily_credit_limit) document.getElementById('set-twitter-credit-limit').value = v.twitter_daily_credit_limit;
+            }
+            if (c.key === 'notify_schedule') {
+                const v = c.value || {};
+                if (v.schedule) document.getElementById('set-notify-schedule').value = v.schedule;
+            }
+            if (c.key === 'twitter_credit_limit') {
+                const v = c.value || {};
+                if (v.daily_limit !== undefined) document.getElementById('set-twitter-credit-limit').value = v.daily_limit;
             }
         }
     } catch {}
@@ -317,57 +369,63 @@ async function loadSettings() {
 
 async function saveSettings() {
     try {
-        // Save feishu config
+        const put = (key, value, desc) => fetch(`${API}/api/config/${key}`, {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({value, description: desc})
+        });
+
+        // Subscription config
+        await put('subscription_config', {
+            enabled: document.getElementById('set-sub-enabled').checked,
+        }, '订阅流配置');
+
+        // Notify config
+        await put('notify_config', {
+            enabled: document.getElementById('set-notify-enabled').checked,
+        }, '推送通知配置');
+
+        // Feishu webhook
         const feishuUrl = document.getElementById('set-feishu-url').value.trim();
         const feishuSecret = document.getElementById('set-feishu-secret').value.trim();
         if (feishuUrl) {
-            await fetch(`${API}/api/config/feishu_webhook`, {
-                method: 'PUT', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({value: {url: feishuUrl, secret: feishuSecret}, description: '飞书 Webhook 配置'})
-            });
+            await put('feishu_webhook', {url: feishuUrl, secret: feishuSecret}, '飞书 Webhook 配置');
         }
 
-        // Save explore keywords
-        const keywords = document.getElementById('set-explore-keywords').value.trim();
-        await fetch(`${API}/api/config/explore_keywords`, {
-            method: 'PUT', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({value: {keywords}, description: '自定义探索关键词'})
-        });
+        // Notify schedule
+        await put('notify_schedule', {
+            schedule: document.getElementById('set-notify-schedule').value.trim(),
+        }, '推送时间表');
 
-        // Save notify schedule
-        const schedule = document.getElementById('set-notify-schedule').value.trim();
-        await fetch(`${API}/api/config/notify_schedule`, {
-            method: 'PUT', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({value: {schedule}, description: '推送时间表'})
-        });
+        // Quality threshold
+        await put('min_quality_score', {
+            value: parseFloat(document.getElementById('set-min-quality').value) || 0.3,
+        }, '最低质量评分');
 
-        // Save quality threshold
-        const minQuality = document.getElementById('set-min-quality').value;
-        await fetch(`${API}/api/config/min_quality_score`, {
-            method: 'PUT', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({value: {value: parseFloat(minQuality) || 0.3}, description: '最低质量评分'})
-        });
+        // Analysis focus
+        await put('analysis_focus', {
+            focus: document.getElementById('set-analysis-focus').value || 'comprehensive',
+        }, 'AI 分析侧重点');
 
-        // Save explore config (including credit control)
-        const exploreEnabled = document.getElementById('set-explore-enabled').checked;
-        const exploreWoeids = document.getElementById('set-explore-woeids').value.trim();
-        const exploreRegions = document.getElementById('set-explore-yt-regions').value.trim();
-        const exploreInterval = document.getElementById('set-explore-interval').value;
-        const maxTrends = document.getElementById('set-explore-max-trends').value;
-        const searchLimit = document.getElementById('set-explore-search-limit').value;
-        const creditLimit = document.getElementById('set-twitter-credit-limit').value;
-        await fetch(`${API}/api/config/explore_config`, {
-            method: 'PUT', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({value: {
-                enabled: exploreEnabled,
-                twitter_woeids: exploreWoeids,
-                youtube_regions: exploreRegions,
-                interval: parseInt(exploreInterval),
-                max_trends_per_woeid: parseInt(maxTrends) || 2,
-                max_search_per_keyword: parseInt(searchLimit) || 5,
-                twitter_daily_credit_limit: parseInt(creditLimit) || 5000,
-            }, description: '探索流配置'})
-        });
+        // Explore keywords
+        await put('explore_keywords', {
+            keywords: document.getElementById('set-explore-keywords').value.trim(),
+        }, '自定义探索关键词');
+
+        // Explore config (all explore params in one key)
+        await put('explore_config', {
+            enabled: document.getElementById('set-explore-enabled').checked,
+            trend_interval: parseInt(document.getElementById('set-explore-trend-interval').value),
+            keyword_interval: parseInt(document.getElementById('set-explore-keyword-interval').value),
+            twitter_woeids: document.getElementById('set-explore-woeids').value.trim(),
+            youtube_regions: document.getElementById('set-explore-yt-regions').value.trim(),
+            max_trends_per_woeid: parseInt(document.getElementById('set-explore-max-trends').value) || 2,
+            max_search_per_keyword: parseInt(document.getElementById('set-explore-search-limit').value) || 5,
+        }, '探索流配置');
+
+        // Credit limit (独立 key，便于直接读取)
+        await put('twitter_credit_limit', {
+            daily_limit: parseInt(document.getElementById('set-twitter-credit-limit').value) || 10000,
+        }, 'Twitter 每日 Credit 上限');
 
         showToast('设置已保存','success');
     } catch (e) {
@@ -397,6 +455,192 @@ async function loadFetchLogs() {
                 <span class="log-meta">${time} · ${dur}</span>
             </div>`;
         }).join('');
+    } catch { el.innerHTML = '<div class="empty-state"><p>加载失败</p></div>'; }
+}
+
+/* ===== OPML Import ===== */
+function showOpmlModal() { document.getElementById('opml-modal').classList.add('active'); document.getElementById('opml-result').style.display='none'; }
+function closeOpmlModal() { document.getElementById('opml-modal').classList.remove('active'); }
+
+async function importOpml() {
+    const fileInput = document.getElementById('opml-file');
+    if (!fileInput.files.length) { showToast('请选择 OPML 文件','error'); return; }
+    const btn = document.getElementById('opml-import-btn');
+    const resultEl = document.getElementById('opml-result');
+    btn.disabled = true; btn.textContent = '导入中...';
+    resultEl.style.display = 'none';
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    const interval = document.getElementById('opml-interval').value;
+    const aiEnabled = document.getElementById('opml-ai').checked;
+
+    try {
+        const r = await fetch(`${API}/api/subscriptions/import/opml?fetch_interval=${interval}&ai_analysis_enabled=${aiEnabled}`, {
+            method: 'POST', body: formData
+        });
+        const d = await r.json();
+        if (!r.ok) { showToast(`导入失败: ${d.detail || '未知错误'}`, 'error'); return; }
+
+        resultEl.style.display = 'block';
+        let html = `<div style="color:var(--emerald);font-weight:600;margin-bottom:6px">导入完成</div>`;
+        html += `<div>解析 Feed: ${d.total_feeds} 个 | 新建: ${d.created} 个 | 跳过: ${d.skipped} 个</div>`;
+        if (d.errors && d.errors.length) {
+            html += `<div style="color:var(--rose);margin-top:6px">错误 (${d.errors.length}):</div>`;
+            html += d.errors.map(e => `<div style="font-size:12px;color:var(--text-dim)">· ${esc(e)}</div>`).join('');
+        }
+        resultEl.innerHTML = html;
+        showToast(`成功导入 ${d.created} 个 RSS 订阅`, 'success');
+        loadSubscriptions();
+        checkHealth();
+    } catch (e) {
+        showToast('导入失败: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false; btn.textContent = '导入';
+    }
+}
+
+/* ===== Cost Monitor ===== */
+const OP_LABELS = {
+    trends: '趋势查询',
+    trend_search: '趋势搜索',
+    keyword_search: '关键词搜索',
+    author_search: '博主搜索',
+    subscription: '订阅采集',
+    unknown: '其他',
+};
+const OP_COLORS = {
+    trends: '#f59e0b',
+    trend_search: '#ef4444',
+    keyword_search: '#6366f1',
+    author_search: '#a855f7',
+    subscription: '#10b981',
+    unknown: '#6b7280',
+};
+
+async function loadCostData() {
+    try {
+        const r = await fetch(`${API}/api/credits/summary?days=30`);
+        const d = await r.json();
+        const el = (id) => document.getElementById(id);
+
+        // Summary cards
+        el('cost-today').textContent = fmtN(d.today?.used || 0);
+        const pct = d.today?.percentage || 0;
+        const limit = d.today?.limit || 0;
+        el('cost-today-sub').textContent = limit > 0
+            ? `${d.today.used} / ${fmtN(limit)} (${pct}%)`
+            : `${d.today?.used || 0} credits`;
+        el('cost-week').textContent = fmtN(d.period?.week || 0);
+        el('cost-avg-daily').textContent = fmtN(d.period?.avg_daily || 0);
+        el('cost-monthly').textContent = `$${d.cost_estimate?.monthly_usd || 0}`;
+
+        // Budget progress bar
+        const fillEl = el('cost-budget-fill');
+        const budgetText = el('cost-budget-text');
+        if (limit > 0) {
+            const width = Math.min(pct, 100);
+            fillEl.style.width = width + '%';
+            fillEl.className = 'budget-bar-fill' + (pct > 80 ? ' danger' : pct > 50 ? ' warning' : '');
+            budgetText.textContent = `${d.today.used} / ${fmtN(limit)} credits (${pct}%)`;
+        } else {
+            fillEl.style.width = '0%';
+            budgetText.textContent = '未设置每日上限';
+        }
+
+        // Daily trend chart (pure CSS bar chart)
+        const trend = d.daily_trend || [];
+        renderBarChart(el('cost-chart'), trend, limit);
+
+        // Operation breakdown
+        renderBreakdown(el('cost-breakdown-today'), d.by_operation?.today || []);
+        renderBreakdown(el('cost-breakdown-week'), d.by_operation?.week || []);
+
+    } catch (e) {
+        console.error('Load cost data failed:', e);
+    }
+}
+
+function renderBarChart(container, data, limit) {
+    if (!data.length) {
+        container.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>';
+        return;
+    }
+    const maxVal = Math.max(...data.map(d => d.total_credits), limit || 0, 1);
+    const barWidth = Math.max(Math.floor((container.clientWidth || 700) / data.length) - 4, 12);
+
+    container.innerHTML = data.map(d => {
+        const h = Math.max(Math.round((d.total_credits / maxVal) * 140), 2);
+        const date = d.date.substring(5); // MM-DD
+        const isToday = d.date === new Date().toISOString().substring(0, 10);
+        return `<div class="bar-col${isToday ? ' today' : ''}" style="width:${barWidth}px" title="${d.date}: ${d.total_credits} credits (${d.call_count} 次)">
+            <div class="bar-value">${d.total_credits > 999 ? fmtN(d.total_credits) : d.total_credits}</div>
+            <div class="bar" style="height:${h}px"></div>
+            <div class="bar-label">${date}</div>
+        </div>`;
+    }).join('') + (limit > 0 ? `<div class="bar-limit-line" style="bottom:${Math.round((limit / maxVal) * 140) + 28}px" title="每日上限: ${fmtN(limit)}">
+        <span>${fmtN(limit)}</span>
+    </div>` : '');
+}
+
+function renderBreakdown(container, data) {
+    if (!data.length) {
+        container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-dim);font-size:13px">暂无数据</div>';
+        return;
+    }
+    const total = data.reduce((s, d) => s + d.total_credits, 0);
+    container.innerHTML = data.map(d => {
+        const label = OP_LABELS[d.operation] || d.operation;
+        const color = OP_COLORS[d.operation] || '#6b7280';
+        const pct = total > 0 ? ((d.total_credits / total) * 100).toFixed(1) : 0;
+        const ctxLabel = d.context === 'subscription' ? '订阅' : d.context === 'explore' ? '探索' : d.context;
+        return `<div class="breakdown-row">
+            <div class="breakdown-label">
+                <span class="breakdown-dot" style="background:${color}"></span>
+                <span>${label}</span>
+                <span class="breakdown-ctx">${ctxLabel}</span>
+            </div>
+            <div class="breakdown-bar-track">
+                <div class="breakdown-bar-fill" style="width:${pct}%;background:${color}"></div>
+            </div>
+            <div class="breakdown-value">${fmtN(d.total_credits)} <span class="breakdown-pct">(${pct}%)</span></div>
+            <div class="breakdown-calls">${d.call_count} 次</div>
+        </div>`;
+    }).join('') + `<div class="breakdown-total">合计: ${fmtN(total)} credits</div>`;
+}
+
+async function loadCostRecords() {
+    const el = document.getElementById('cost-records');
+    el.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
+    try {
+        const r = await fetch(`${API}/api/credits/records?limit=50`);
+        const records = await r.json();
+        if (!records.length) {
+            el.innerHTML = '<div class="empty-state"><p>暂无 API 调用记录</p></div>';
+            return;
+        }
+        el.innerHTML = `<div class="credit-records-table">
+            <div class="cr-header">
+                <span class="cr-col-time">时间</span>
+                <span class="cr-col-op">操作</span>
+                <span class="cr-col-detail">详情</span>
+                <span class="cr-col-ctx">上下文</span>
+                <span class="cr-col-credits">Credits</span>
+            </div>
+            ${records.map(r => {
+                const time = r.created_at ? new Date(r.created_at).toLocaleString('zh-CN', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+                const opLabel = OP_LABELS[r.operation] || r.operation;
+                const color = OP_COLORS[r.operation] || '#6b7280';
+                const ctxLabel = r.context === 'subscription' ? '订阅' : r.context === 'explore' ? '探索' : r.context || '';
+                return `<div class="cr-row">
+                    <span class="cr-col-time">${time}</span>
+                    <span class="cr-col-op"><span class="breakdown-dot" style="background:${color}"></span>${opLabel}</span>
+                    <span class="cr-col-detail" title="${esc(r.detail || '')}">${esc((r.detail || '—').substring(0, 40))}</span>
+                    <span class="cr-col-ctx"><span class="tag tag-${r.context || 'explore'}">${ctxLabel}</span></span>
+                    <span class="cr-col-credits">${r.credits}</span>
+                </div>`;
+            }).join('')}
+        </div>`;
     } catch { el.innerHTML = '<div class="empty-state"><p>加载失败</p></div>'; }
 }
 

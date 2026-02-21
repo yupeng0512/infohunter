@@ -1,7 +1,7 @@
 """数据库模型定义
 
 InfoHunter 多源社交媒体监控系统的数据模型。
-支持 Twitter / YouTube 多平台内容存储。
+支持 Twitter / YouTube / Blog(RSS) 多平台内容存储。
 """
 
 from datetime import datetime
@@ -43,14 +43,14 @@ class Subscription(Base):
         String(255), nullable=False, comment="订阅名称 (如: AI趋势追踪)"
     )
     source: Mapped[str] = mapped_column(
-        String(32), nullable=False, comment="数据源: twitter / youtube"
+        String(32), nullable=False, comment="数据源: twitter / youtube / blog"
     )
     type: Mapped[str] = mapped_column(
-        String(32), nullable=False, comment="订阅类型: keyword / author / topic"
+        String(32), nullable=False, comment="订阅类型: keyword / author / topic / feed"
     )
     target: Mapped[str] = mapped_column(
         String(512), nullable=False,
-        comment="订阅目标: 关键词 / #话题 / @用户 / 频道ID"
+        comment="订阅目标: 关键词 / #话题 / @用户 / 频道ID / RSS Feed URL"
     )
     filters: Mapped[Optional[dict]] = mapped_column(
         JSON, comment="额外过滤条件 (JSON): min_likes, language, sort 等"
@@ -110,12 +110,12 @@ class Content(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # 平台原始 ID (推文ID / 视频ID)
+    # 平台原始 ID (推文ID / 视频ID / RSS entry ID or URL)
     content_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, comment="平台原始 ID"
+        String(512), nullable=False, comment="平台原始 ID"
     )
     source: Mapped[str] = mapped_column(
-        String(32), nullable=False, comment="数据源: twitter / youtube"
+        String(32), nullable=False, comment="数据源: twitter / youtube / blog"
     )
 
     # 关联订阅
@@ -274,6 +274,50 @@ class FetchLog(Base):
 
     def __repr__(self) -> str:
         return f"<FetchLog(id={self.id}, source={self.source}, status={self.status})>"
+
+
+class CreditUsage(Base):
+    """API Credit 消耗记录表
+
+    逐条记录每次 Twitter API 调用的 credit 消耗，
+    支持按日/周/月维度的成本分析看板。
+    """
+
+    __tablename__ = "credit_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, comment="API 来源: twitter / youtube"
+    )
+    operation: Mapped[str] = mapped_column(
+        String(64), nullable=False,
+        comment="操作类型: trends / advanced_search / keyword_search / author_search / subscription"
+    )
+    credits: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="消耗的 credit 数"
+    )
+    detail: Mapped[Optional[str]] = mapped_column(
+        String(255), comment="操作详情: WOEID / 关键词 / 订阅名等"
+    )
+    context: Mapped[Optional[str]] = mapped_column(
+        String(32), default="explore",
+        comment="调用上下文: explore / subscription / manual"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=func.now(), comment="记录时间"
+    )
+
+    __table_args__ = (
+        Index("idx_credit_source", "source"),
+        Index("idx_credit_operation", "operation"),
+        Index("idx_credit_created_at", "created_at"),
+        Index("idx_credit_context", "context"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<CreditUsage(id={self.id}, op={self.operation}, credits={self.credits})>"
 
 
 class SystemConfig(Base):

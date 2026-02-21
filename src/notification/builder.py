@@ -87,6 +87,97 @@ class MessageBuilder:
         return "\n".join(lines)
 
     @staticmethod
+    def build_ai_digest(
+        source: str,
+        title: Optional[str],
+        author: str,
+        url: str,
+        metrics: Optional[dict] = None,
+        ai_analysis: Optional[dict] = None,
+        subscription_name: Optional[str] = None,
+    ) -> str:
+        """构建 AI 精选推送（以 AI 分析结果为核心，不推送原文）"""
+        source_emoji = {"twitter": "🐦", "youtube": "📺", "blog": "📝"}.get(source, "📰")
+        lines = []
+
+        if subscription_name:
+            lines.append(f"📌 来源: **{subscription_name}**")
+        else:
+            lines.append(f"{source_emoji} 来源: **探索发现**")
+        lines.append("")
+
+        if title:
+            lines.append(f"**{title}**")
+            lines.append("")
+
+        if ai_analysis and isinstance(ai_analysis, dict):
+            if ai_analysis.get("summary"):
+                lines.append(f"📝 **摘要**: {ai_analysis['summary']}")
+                lines.append("")
+
+            if ai_analysis.get("key_points"):
+                lines.append("💡 **核心观点**:")
+                for point in ai_analysis["key_points"][:5]:
+                    lines.append(f"  • {point}")
+                lines.append("")
+
+            if ai_analysis.get("deep_analysis"):
+                lines.append(f"🔬 **深度分析**: {ai_analysis['deep_analysis']}")
+                lines.append("")
+
+            if ai_analysis.get("actionable_insights"):
+                lines.append("🎯 **可执行洞察**:")
+                for insight in ai_analysis["actionable_insights"][:3]:
+                    lines.append(f"  • {insight}")
+                lines.append("")
+
+            if ai_analysis.get("recommendation"):
+                lines.append(f"💡 **建议**: {ai_analysis['recommendation']}")
+                lines.append("")
+
+            quality = ai_analysis.get("quality_indicators", {})
+            importance = ai_analysis.get("importance", 0)
+            if importance:
+                stars = "⭐" * min(int(importance / 2), 5)
+                lines.append(f"重要性: {stars} ({importance}/10)")
+
+            if quality:
+                parts = []
+                if quality.get("originality"):
+                    parts.append(f"原创 {quality['originality']}")
+                if quality.get("depth"):
+                    parts.append(f"深度 {quality['depth']}")
+                if quality.get("credibility"):
+                    parts.append(f"可信 {quality['credibility']}")
+                if quality.get("signal_noise_ratio"):
+                    parts.append(f"信噪比 {quality['signal_noise_ratio']}")
+                if parts:
+                    lines.append(f"质量: {' | '.join(parts)}")
+
+            if ai_analysis.get("topics"):
+                topics = ai_analysis["topics"][:5]
+                lines.append(f"标签: {' '.join(f'#{t}' for t in topics)}")
+        else:
+            lines.append("⚠️ AI 分析数据异常")
+
+        lines.append("")
+        lines.append(f"{source_emoji} @{author}")
+        if metrics:
+            parts = []
+            if metrics.get("likes"):
+                parts.append(f"❤️ {metrics['likes']}")
+            if metrics.get("views"):
+                parts.append(f"👁️ {_format_number(metrics['views'])}")
+            if parts:
+                lines.append(" | ".join(parts))
+
+        if url:
+            lines.append("")
+            lines.append(f"[查看原文]({url})")
+
+        return "\n".join(lines)
+
+    @staticmethod
     def build_daily_report(
         contents: list[dict],
         date: Optional[datetime] = None,
@@ -128,7 +219,10 @@ class MessageBuilder:
                     lines.append("")
                     lines.append("💡 **关键洞察**")
                     for insight in ai_summary["key_insights"][:5]:
-                        lines.append(f"• {insight}")
+                        if isinstance(insight, dict):
+                            lines.append(f"• {insight.get('insight', str(insight))}")
+                        else:
+                            lines.append(f"• {insight}")
             lines.append("")
 
         # Top 内容列表
@@ -219,27 +313,51 @@ class MessageBuilder:
                 lines.append("")
                 lines.append("💡 **关键洞察**")
                 for insight in ai_summary["key_insights"][:5]:
-                    lines.append(f"  • {insight}")
+                    if isinstance(insight, dict):
+                        lines.append(f"  • {insight.get('insight', str(insight))}")
+                    else:
+                        lines.append(f"  • {insight}")
 
-            if ai_summary.get("emerging_trends"):
+            emerging = ai_summary.get("emerging_signals") or ai_summary.get("emerging_trends")
+            if emerging:
                 lines.append("")
-                lines.append(f"🚀 **新兴趋势**: {ai_summary['emerging_trends']}")
+                lines.append("🚀 **新兴趋势/弱信号**")
+                if isinstance(emerging, list):
+                    for sig in emerging[:3]:
+                        if isinstance(sig, dict):
+                            lines.append(f"  • {sig.get('signal', str(sig))}")
+                        else:
+                            lines.append(f"  • {sig}")
+                elif isinstance(emerging, str):
+                    lines.append(f"  {emerging}")
 
-            if ai_summary.get("sentiment_overview"):
+            sentiment_data = ai_summary.get("sentiment_overview")
+            if sentiment_data:
                 sentiment_map = {
                     "positive": "😊 积极",
                     "negative": "😟 消极",
                     "neutral": "😐 中性",
                     "mixed": "🔀 混合",
                 }
-                sentiment = sentiment_map.get(
-                    ai_summary["sentiment_overview"],
-                    ai_summary["sentiment_overview"],
-                )
-                lines.append(f"🎭 **整体情绪**: {sentiment}")
+                if isinstance(sentiment_data, dict):
+                    overall = sentiment_data.get("overall", "")
+                    sentiment = sentiment_map.get(overall, overall)
+                    lines.append(f"🎭 **整体情绪**: {sentiment}")
+                    if sentiment_data.get("breakdown"):
+                        lines.append(f"  {sentiment_data['breakdown']}")
+                else:
+                    sentiment = sentiment_map.get(sentiment_data, sentiment_data)
+                    lines.append(f"🎭 **整体情绪**: {sentiment}")
 
-            if ai_summary.get("recommendation"):
-                lines.append(f"💡 **建议关注**: {ai_summary['recommendation']}")
+            rec = ai_summary.get("recommendation")
+            if rec:
+                if isinstance(rec, dict):
+                    if rec.get("immediate_action"):
+                        lines.append(f"🎯 **行动建议**: {rec['immediate_action']}")
+                    if rec.get("watch_list"):
+                        lines.append(f"👀 **关注清单**: {', '.join(rec['watch_list'][:5])}")
+                else:
+                    lines.append(f"💡 **建议关注**: {rec}")
             lines.append("")
 
         # Top 内容
@@ -265,6 +383,138 @@ class MessageBuilder:
         lines.append("")
         lines.append(f"⏰ 生成时间: {now.strftime('%Y-%m-%d %H:%M')}")
 
+        return "\n".join(lines)
+
+
+    @staticmethod
+    def build_briefing(
+        contents: list,
+        window_start: datetime,
+        window_end: datetime,
+        ai_trend_summary: Optional[dict] = None,
+    ) -> str:
+        """构建时间窗口批量简报（阶段三核心模板）
+
+        Args:
+            contents: Content ORM 对象列表（已分析的）
+            window_start: 时间窗口开始
+            window_end: 时间窗口结束
+            ai_trend_summary: trend_analysis Agent 的二次汇总结果
+        """
+        now = get_local_time()
+        start_str = window_start.strftime("%m/%d %H:%M")
+        end_str = window_end.strftime("%m/%d %H:%M")
+
+        lines = [
+            f"**InfoHunter 简报** ({start_str} ~ {end_str})",
+            f"共 **{len(contents)}** 条精选内容",
+            "",
+        ]
+
+        if ai_trend_summary and isinstance(ai_trend_summary, dict):
+            lines.append("---")
+            lines.append("**AI 趋势总览**")
+
+            if ai_trend_summary.get("overall_summary"):
+                lines.append(ai_trend_summary["overall_summary"])
+                lines.append("")
+
+            if ai_trend_summary.get("hot_topics"):
+                lines.append("**热点话题**")
+                for topic in ai_trend_summary["hot_topics"][:5]:
+                    if isinstance(topic, dict):
+                        name = topic.get("topic", str(topic))
+                        desc = topic.get("description", "")
+                        heat = topic.get("heat", 0)
+                        heat_bar = "■" * min(int(heat), 10) if heat else ""
+                        lines.append(f"  • **{name}** {heat_bar}")
+                        if desc:
+                            lines.append(f"    {desc}")
+                    else:
+                        lines.append(f"  • {topic}")
+                lines.append("")
+
+            if ai_trend_summary.get("key_insights"):
+                lines.append("**关键洞察**")
+                for insight in ai_trend_summary["key_insights"][:5]:
+                    if isinstance(insight, dict):
+                        lines.append(f"  • {insight.get('insight', str(insight))}")
+                    else:
+                        lines.append(f"  • {insight}")
+                lines.append("")
+
+            emerging = ai_trend_summary.get("emerging_signals") or ai_trend_summary.get("emerging_trends")
+            if emerging:
+                lines.append("**弱信号**")
+                if isinstance(emerging, list):
+                    for sig in emerging[:3]:
+                        if isinstance(sig, dict):
+                            lines.append(f"  • {sig.get('signal', str(sig))}")
+                        else:
+                            lines.append(f"  • {sig}")
+                elif isinstance(emerging, str):
+                    lines.append(f"  {emerging}")
+                lines.append("")
+
+            rec = ai_trend_summary.get("recommendation")
+            if rec:
+                if isinstance(rec, dict):
+                    if rec.get("immediate_action"):
+                        lines.append(f"**行动建议**: {rec['immediate_action']}")
+                    if rec.get("watch_list"):
+                        lines.append(f"**关注清单**: {', '.join(rec['watch_list'][:5])}")
+                else:
+                    lines.append(f"**建议关注**: {rec}")
+                lines.append("")
+
+        lines.append("---")
+        lines.append("**精选内容**")
+        lines.append("")
+
+        for i, c in enumerate(contents[:20], 1):
+            source_emoji = {"twitter": "🐦", "youtube": "📺", "blog": "📝"}.get(
+                getattr(c, "source", "") if hasattr(c, "source") else c.get("source", ""),
+                "📰",
+            )
+            title = (
+                getattr(c, "title", None) if hasattr(c, "title") else c.get("title")
+            )
+            author = (
+                getattr(c, "author", "") if hasattr(c, "author") else c.get("author", "")
+            )
+            url = (
+                getattr(c, "url", "") if hasattr(c, "url") else c.get("url", "")
+            )
+            ai = (
+                getattr(c, "ai_analysis", None) if hasattr(c, "ai_analysis") else c.get("ai_analysis")
+            )
+
+            if not title:
+                content_text = getattr(c, "content", "") if hasattr(c, "content") else c.get("content", "")
+                title = (content_text[:60] + "...") if content_text else "无标题"
+
+            importance = 0
+            summary = ""
+            if ai and isinstance(ai, dict):
+                importance = ai.get("importance", 0)
+                summary = ai.get("summary", "")
+
+            stars = "⭐" * min(int(importance / 2), 5) if importance else ""
+            line = f"{i}. {source_emoji} **{title}**"
+            if author:
+                line += f" @{author}"
+            if stars:
+                line += f" {stars}"
+            lines.append(line)
+
+            if summary:
+                lines.append(f"   {summary}")
+
+            if url:
+                lines.append(f"   [原文]({url})")
+            lines.append("")
+
+        lines.append(f"⏰ {now.strftime('%Y-%m-%d %H:%M')}")
         return "\n".join(lines)
 
 

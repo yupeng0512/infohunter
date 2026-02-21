@@ -3,11 +3,10 @@
 多源社交媒体 AI 智能订阅监控系统。
 基于 APScheduler 调度采集、分析、通知任务。
 
-架构:
-- 订阅流 (Following): 用户创建的关键词/博主/话题订阅，定期采集
-- 探索流 (Explore): 系统自动发现热门趋势 + 用户自定义探索关键词
-- 推送调度: 与抓取解耦，按固定时间点汇总推送
-- AI 分析: 内容分析、趋势雷达、智能推荐、Newsletter 摘要
+三阶段解耦架构:
+- 阶段一 (抓取与落库): 订阅流 + 探索流采集，去重/质量评分后落库，不触发 AI 分析
+- 阶段二 (独立 AI 分析): 定时任务按优先级排序处理未分析内容，写回 ai_analysis + importance
+- 阶段三 (汇总与推送): 定时按时间窗口查询已分析内容，二次汇总后一次性推送批量简报
 """
 
 import asyncio
@@ -86,6 +85,20 @@ class InfoHunter:
             return None
 
     @property
+    def dynamic_subscription_enabled(self) -> bool:
+        cfg = self._get_db_config("subscription_config")
+        if cfg and "enabled" in cfg:
+            return bool(cfg["enabled"])
+        return settings.subscription_enabled
+
+    @property
+    def dynamic_notify_enabled(self) -> bool:
+        cfg = self._get_db_config("notify_config")
+        if cfg and "enabled" in cfg:
+            return bool(cfg["enabled"])
+        return settings.notify_enabled
+
+    @property
     def dynamic_explore_enabled(self) -> bool:
         cfg = self._get_db_config("explore_config")
         if cfg and "enabled" in cfg:
@@ -121,6 +134,13 @@ class InfoHunter:
         return settings.notify_schedule
 
     @property
+    def dynamic_analysis_focus(self) -> str:
+        cfg = self._get_db_config("analysis_focus")
+        if cfg and cfg.get("focus"):
+            return cfg["focus"]
+        return "comprehensive"
+
+    @property
     def dynamic_min_quality_score(self) -> float:
         cfg = self._get_db_config("min_quality_score")
         if cfg and "value" in cfg:
@@ -132,13 +152,33 @@ class InfoHunter:
 
     @property
     def dynamic_explore_interval(self) -> int:
+        """关键词搜索间隔 (兼容旧字段名)"""
+        return self.dynamic_explore_keyword_interval
+
+    @property
+    def dynamic_explore_keyword_interval(self) -> int:
         cfg = self._get_db_config("explore_config")
+        if cfg and cfg.get("keyword_interval"):
+            try:
+                return int(cfg["keyword_interval"])
+            except (ValueError, TypeError):
+                pass
         if cfg and cfg.get("interval"):
             try:
                 return int(cfg["interval"])
             except (ValueError, TypeError):
                 pass
         return settings.explore_fetch_interval
+
+    @property
+    def dynamic_explore_trend_interval(self) -> int:
+        cfg = self._get_db_config("explore_config")
+        if cfg and cfg.get("trend_interval"):
+            try:
+                return int(cfg["trend_interval"])
+            except (ValueError, TypeError):
+                pass
+        return settings.explore_trend_interval
 
     @property
     def dynamic_max_trends_per_woeid(self) -> int:
@@ -162,6 +202,14 @@ class InfoHunter:
 
     @property
     def dynamic_twitter_daily_credit_limit(self) -> int:
+        # 优先：独立 key
+        limit_cfg = self._get_db_config("twitter_credit_limit")
+        if limit_cfg and limit_cfg.get("daily_limit") is not None:
+            try:
+                return int(limit_cfg["daily_limit"])
+            except (ValueError, TypeError):
+                pass
+        # 向后兼容：explore_config 中的旧字段
         cfg = self._get_db_config("explore_config")
         if cfg and cfg.get("twitter_daily_credit_limit"):
             try:
@@ -170,8 +218,14 @@ class InfoHunter:
                 pass
         return settings.twitter_daily_credit_limit
 
-    def _track_twitter_credits(self, credits: int) -> None:
-        """追踪 Twitter API credit 消耗"""
+    def _track_twitter_credits(
+        self,
+        credits: int,
+        operation: str = "unknown",
+        detail: str = "",
+        context: str = "explore",
+    ) -> None:
+        """追踪 Twitter API credit 消耗并持久化到数据库"""
         today = datetime.now(self.SERVER_TZ).strftime("%Y-%m-%d")
         if self._twitter_credits_date != today:
             self._twitter_credits_used = 0
@@ -179,14 +233,33 @@ class InfoHunter:
         self._twitter_credits_used += credits
         logger.debug(f"Twitter credit: +{credits}, 今日累计: {self._twitter_credits_used}")
 
+        if self.db:
+            try:
+                self.db.log_credit_usage(
+                    source="twitter",
+                    operation=operation,
+                    credits=credits,
+                    detail=detail or None,
+                    context=context,
+                )
+            except Exception as e:
+                logger.warning(f"持久化 credit 记录失败: {e}")
+
     def _check_twitter_credit_budget(self, estimated_cost: int = 0) -> bool:
-        """检查是否超出每日 credit 预算"""
+        """检查是否超出每日 credit 预算（结合内存和数据库记录）"""
         limit = self.dynamic_twitter_daily_credit_limit
         if limit <= 0:
-            return True  # 不限制
+            return True
         today = datetime.now(self.SERVER_TZ).strftime("%Y-%m-%d")
         if self._twitter_credits_date != today:
-            self._twitter_credits_used = 0
+            # 新的一天：从数据库恢复已用 credit（防止重启丢失）
+            if self.db:
+                try:
+                    self._twitter_credits_used = self.db.get_credit_usage_today(source="twitter")
+                except Exception:
+                    self._twitter_credits_used = 0
+            else:
+                self._twitter_credits_used = 0
             self._twitter_credits_date = today
         if self._twitter_credits_used + estimated_cost > limit:
             logger.warning(
@@ -207,6 +280,9 @@ class InfoHunter:
 
         # 订阅管理
         self.sub_manager = SubscriptionManager(self.db)
+
+        # 迁移：统一过短的订阅间隔为 6h
+        self._normalize_subscription_intervals()
 
         # 数据源
         if settings.twitterapi_io_key:
@@ -255,6 +331,21 @@ class InfoHunter:
         # 调度器
         self.scheduler = AsyncIOScheduler()
 
+    def _normalize_subscription_intervals(self) -> None:
+        """将过短的订阅间隔统一为 6h (21600s)"""
+        min_interval = settings.default_fetch_interval  # 21600
+        subs = self.sub_manager.list_all()
+        updated = 0
+        for sub in subs:
+            if sub.fetch_interval < min_interval:
+                self.db.update_subscription(sub.id, {"fetch_interval": min_interval})
+                updated += 1
+                logger.info(
+                    f"订阅 '{sub.name}' 间隔从 {sub.fetch_interval}s 调整为 {min_interval}s"
+                )
+        if updated:
+            logger.info(f"已标准化 {updated} 个订阅的采集间隔为 {min_interval}s ({min_interval // 3600}h)")
+
     def _refresh_feishu_client(self) -> None:
         """根据数据库 SystemConfig 动态刷新飞书客户端"""
         cfg = self._get_db_config("feishu_webhook")
@@ -285,6 +376,8 @@ class InfoHunter:
                 items = await self._fetch_twitter(sub)
             elif sub.source == "youtube":
                 items = await self._fetch_youtube(sub)
+            elif sub.source == "blog":
+                items = await self._fetch_blog(sub)
 
             if not items:
                 logger.info(f"订阅 {sub.name}: 未获取到新内容")
@@ -335,10 +428,6 @@ class InfoHunter:
 
             self.sub_manager.mark_fetched(sub.id)
 
-            # AI 分析 (如果启用且有新内容)
-            if sub.ai_analysis_enabled and self.analyzer and new_count > 0:
-                await self._run_analysis()
-
         except Exception as e:
             logger.error(f"采集订阅 {sub.name} 失败: {e}")
             self.db.log_fetch(
@@ -366,7 +455,10 @@ class InfoHunter:
                     limit=20,
                     sort=sort,
                 )
-                self._track_twitter_credits(75)
+                self._track_twitter_credits(
+                    75, operation="keyword_search",
+                    detail=sub.target[:200], context="subscription",
+                )
             else:
                 logger.warning("TwitterAPI.io 未配置，无法执行关键词搜索")
 
@@ -385,7 +477,10 @@ class InfoHunter:
                 items = await self.twitter_search.get_author_content(
                     author_id=username, limit=20
                 )
-                self._track_twitter_credits(75)
+                self._track_twitter_credits(
+                    75, operation="author_search",
+                    detail=username, context="subscription",
+                )
 
         return items
 
@@ -437,6 +532,20 @@ class InfoHunter:
 
         return items
 
+    async def _fetch_blog(self, sub) -> list[dict]:
+        """执行 Blog/RSS 采集"""
+        if sub.type != "feed" or not sub.target:
+            logger.warning(f"Blog 订阅 {sub.name}: 类型或目标无效 (type={sub.type})")
+            return []
+
+        items = await self.rss.fetch_feed(
+            feed_url=sub.target,
+            limit=20,
+            source="blog",
+            author=sub.name,
+        )
+        return items
+
     async def _enrich_youtube_transcripts(self, items: list[dict]) -> None:
         """为高质量 YouTube 视频获取字幕"""
         if not self.youtube_transcript:
@@ -459,30 +568,43 @@ class InfoHunter:
 
     # ========== 探索流 (Explore/Discover) ==========
 
-    async def run_explore_cycle(self) -> None:
-        """执行探索流采集
-
-        两部分:
-        1. Twitter 趋势发现 — 拉取热门趋势，用 Top 关键词搜索高质量内容
-        2. YouTube 热门发现 — 拉取各地区热门视频
-        3. 用户自定义探索关键词
+    async def _explore_trends_job(self) -> None:
+        """调度器入口 — 趋势发现 (低频, 默认 24h)
+        包含: Twitter 趋势 + YouTube 热门
         """
+        if not self.dynamic_explore_enabled:
+            logger.debug("探索流未启用，跳过趋势发现")
+            return
+
+        logger.info("开始趋势发现...")
+        total_new = 0
+        total_new += await self._explore_twitter_trends()
+        total_new += await self._explore_youtube_trending()
+        logger.info(f"趋势发现完成: 新增 {total_new} 条内容")
+
+    async def _explore_keywords_job(self) -> None:
+        """调度器入口 — 关键词探索 (中频, 默认 6h)
+        包含: 用户自定义关键词在 Twitter + YouTube 搜索
+        """
+        if not self.dynamic_explore_enabled:
+            logger.debug("探索流未启用，跳过关键词探索")
+            return
+
+        logger.info("开始关键词探索...")
+        total_new = await self._explore_custom_keywords()
+        logger.info(f"关键词探索完成: 新增 {total_new} 条内容")
+
+    async def run_explore_cycle(self) -> None:
+        """执行完整探索流 (手动触发时使用，包含趋势+关键词)"""
         if not self.dynamic_explore_enabled:
             logger.debug("探索流未启用")
             return
 
-        logger.info("开始探索流采集...")
+        logger.info("开始完整探索流采集...")
         total_new = 0
-
-        # 1. Twitter 趋势
         total_new += await self._explore_twitter_trends()
-
-        # 2. YouTube 热门
         total_new += await self._explore_youtube_trending()
-
-        # 3. 用户自定义探索关键词
         total_new += await self._explore_custom_keywords()
-
         logger.info(f"探索流采集完成: 新增 {total_new} 条内容")
 
     async def _explore_twitter_trends(self) -> int:
@@ -508,7 +630,10 @@ class InfoHunter:
         for woeid in woeids:
             try:
                 trends = await self.twitter_search.get_trends(woeid=woeid, count=10)
-                self._track_twitter_credits(450)
+                self._track_twitter_credits(
+                    450, operation="trends",
+                    detail=f"woeid={woeid}", context="explore",
+                )
                 if not trends:
                     continue
 
@@ -524,7 +649,10 @@ class InfoHunter:
                     items = await self.twitter_search.search(
                         query=query, limit=search_limit, sort="Top"
                     )
-                    self._track_twitter_credits(75)
+                    self._track_twitter_credits(
+                        75, operation="trend_search",
+                        detail=query[:200], context="explore",
+                    )
                     if not items:
                         continue
 
@@ -617,7 +745,10 @@ class InfoHunter:
                     items = await self.twitter_search.search(
                         query=keyword, limit=search_limit, sort="Top"
                     )
-                    self._track_twitter_credits(75)
+                    self._track_twitter_credits(
+                        75, operation="keyword_search",
+                        detail=keyword[:200], context="explore",
+                    )
                     for item in items:
                         item["subscription_id"] = None
                     if self.smart_filter:
@@ -648,84 +779,127 @@ class InfoHunter:
             logger.info(f"自定义探索关键词: 新增 {new_total} 条")
         return new_total
 
-    # ========== 推送调度 (与抓取解耦) ==========
+    # ========== 阶段三：推送调度 (时间窗口 + 批量简报) ==========
 
     async def run_notify_batch(self) -> None:
-        """定时推送任务
+        """定时推送任务（时间窗口 + 批量简报模式）
 
-        从数据库取未通知的高质量内容，批量推送到飞书。
-        与抓取完全解耦，按 notify_schedule 配置的时间点运行。
+        核心逻辑：
+        1. 确定时间窗口 [上次推送时间 ~ 当前]
+        2. 查询窗口内已分析但未推送的内容
+        3. 按 importance 排序取 TOP N
+        4. 可选：调用 trend_analysis Agent 做二次汇总
+        5. 构建一份简报，一次性推送到飞书
+        6. 标记所有内容为已推送
         """
-        # 动态检查数据库中是否有更新的飞书 webhook 配置
+        if not self.dynamic_notify_enabled:
+            logger.debug("推送通知未启用")
+            return
+
         self._refresh_feishu_client()
 
         if not self.feishu:
             return
 
         try:
-            threshold = self.dynamic_min_quality_score
-            unnotified = self.db.get_unnotified_contents(
-                limit=settings.max_notify_per_batch,
-                min_quality=threshold,
+            now = datetime.now()
+            window_start = self.db.get_last_notify_time()
+            if not window_start:
+                window_start = now - timedelta(hours=12)
+            window_end = now
+
+            top_n = settings.notify_top_n
+
+            contents = self.db.get_analyzed_contents_in_window(
+                window_start=window_start,
+                window_end=window_end,
+                notified=False,
+                limit=top_n,
             )
-            if not unnotified:
-                logger.debug("无待推送内容")
+
+            if not contents:
+                logger.debug(
+                    f"无待推送内容 "
+                    f"(窗口 {window_start.strftime('%m/%d %H:%M')} ~ {window_end.strftime('%m/%d %H:%M')})"
+                )
                 return
 
-            logger.info(f"开始批量推送 {len(unnotified)} 条内容...")
+            logger.info(
+                f"推送简报: {len(contents)} 条内容 "
+                f"(窗口 {window_start.strftime('%m/%d %H:%M')} ~ {window_end.strftime('%m/%d %H:%M')})"
+            )
 
-            success_count = 0
-            for content in unnotified:
+            ai_trend_summary = None
+            if settings.notify_enable_trend_summary and self.analyzer and len(contents) >= 3:
                 try:
-                    sub_name = None
-                    if content.subscription_id:
-                        sub = self.sub_manager.get(content.subscription_id)
-                        if sub:
-                            sub_name = sub.name
-
-                    msg = MessageBuilder.build_content_notification(
-                        source=content.source,
-                        title=content.title,
-                        content=content.content or "",
-                        author=content.author or "unknown",
-                        url=content.url or "",
-                        metrics=content.metrics,
-                        ai_analysis=content.ai_analysis,
-                        subscription_name=sub_name,
-                    )
-
-                    source_emoji = {"twitter": "🐦", "youtube": "📺"}.get(
-                        content.source, "📰"
-                    )
-                    title = f"{source_emoji} InfoHunter 新内容"
-
-                    success = await self.feishu.send_markdown_card(title, msg)
-                    if success:
-                        self.db.mark_contents_notified([content.id])
-                        success_count += 1
-
+                    items_for_trend = [
+                        {
+                            "content": c.content or "",
+                            "title": c.title,
+                            "source": c.source,
+                            "author": c.author or "",
+                            "metrics": c.metrics,
+                            "ai_analysis": c.ai_analysis,
+                        }
+                        for c in contents
+                        if c.ai_analysis
+                    ]
+                    if items_for_trend:
+                        result = await self.analyzer.analyze_batch(
+                            items_for_trend, focus="briefing_summary"
+                        )
+                        if result["status"] == "success":
+                            ai_trend_summary = result["analysis"]
+                            logger.info("二次汇总完成")
                 except Exception as e:
-                    logger.error(f"推送失败 (content_id={content.content_id}): {e}")
+                    logger.warning(f"二次汇总失败 (不影响推送): {e}")
 
-            logger.info(f"批量推送完成: {success_count}/{len(unnotified)} 成功")
+            msg = MessageBuilder.build_briefing(
+                contents=contents,
+                window_start=window_start,
+                window_end=window_end,
+                ai_trend_summary=ai_trend_summary,
+            )
+
+            success = await self.feishu.send_markdown_card(
+                "📋 InfoHunter 简报", msg
+            )
+
+            if success:
+                content_ids = [c.id for c in contents]
+                self.db.mark_contents_notified(content_ids)
+                logger.info(f"简报推送成功: {len(contents)} 条内容已标记为已推送")
+            else:
+                logger.error("简报推送失败")
 
         except Exception as e:
-            logger.error(f"批量推送任务失败: {e}")
+            logger.error(f"推送任务失败: {e}")
 
-    # ========== AI 分析 ==========
+    # ========== 阶段二：独立 AI 分析定时任务 ==========
 
-    async def _run_analysis(self) -> None:
-        """运行 AI 分析"""
+    async def run_ai_analysis_job(self) -> None:
+        """独立 AI 分析定时任务（与抓取/推送完全解耦）
+
+        按优先级排序处理未分析内容：
+        1. 订阅流（有 subscription_id）优先于探索流
+        2. 越新的内容越优先
+        3. 每轮上限 analysis_batch_size 条
+        """
         if not self.analyzer:
             return
 
+        batch_size = settings.analysis_batch_size
+        analysis_focus = self.dynamic_analysis_focus
+
         try:
-            unanalyzed = self.db.get_unanalyzed_contents(limit=10)
+            unanalyzed = self.db.get_unanalyzed_contents_prioritized(limit=batch_size)
             if not unanalyzed:
+                logger.debug("无待分析内容")
                 return
 
-            logger.info(f"开始 AI 分析 {len(unanalyzed)} 条内容...")
+            logger.info(f"AI 分析任务: 待处理 {len(unanalyzed)} 条 (侧重: {analysis_focus})")
 
+            analyzed_count = 0
             for content in unanalyzed:
                 try:
                     result = await self.analyzer.analyze_content(
@@ -735,20 +909,24 @@ class InfoHunter:
                         author=content.author,
                         metrics=content.metrics,
                         transcript=content.transcript,
+                        analysis_focus=analysis_focus,
                     )
 
                     if result["status"] == "success" and result["analysis"]:
-                        self.db.update_ai_analysis(content.id, result["analysis"])
-
                         analysis = result["analysis"]
-                        if isinstance(analysis, dict) and analysis.get("importance"):
-                            relevance = analysis["importance"] / 10.0
-                            self.db.update_scores(
-                                content.id, relevance_score=relevance
-                            )
+                        importance = None
+                        if isinstance(analysis, dict):
+                            importance = analysis.get("importance")
+
+                        self.db.update_ai_analysis(
+                            content.id, analysis, importance=importance
+                        )
+                        analyzed_count += 1
 
                 except Exception as e:
                     logger.error(f"分析内容 {content.content_id} 失败: {e}")
+
+            logger.info(f"AI 分析完成: {analyzed_count}/{len(unanalyzed)} 成功")
 
         except Exception as e:
             logger.error(f"AI 分析任务失败: {e}")
@@ -922,6 +1100,10 @@ class InfoHunter:
 
     async def run_fetch_cycle(self) -> None:
         """执行一轮订阅流采集"""
+        if not self.dynamic_subscription_enabled:
+            logger.debug("订阅流未启用")
+            return
+
         due_subs = self.sub_manager.get_due_subscriptions()
         if not due_subs:
             logger.debug("无需采集的订阅")
@@ -942,28 +1124,62 @@ class InfoHunter:
         now = get_local_time()
         logger.info(f"InfoHunter 启动 ({now.strftime('%Y-%m-%d %H:%M')} {settings.timezone})")
 
-        # 1. 订阅流采集调度 (每 5 分钟检查)
+        # 1. 订阅流采集调度 (默认每 30 分钟检查到期订阅)
+        fetch_check_minutes = max(settings.fetch_check_interval // 60, 5)
         self.scheduler.add_job(
             self.run_fetch_cycle,
-            trigger=IntervalTrigger(minutes=5),
+            trigger=IntervalTrigger(minutes=fetch_check_minutes),
             id="fetch_cycle",
             name="订阅流采集",
             replace_existing=True,
         )
+        logger.info(
+            f"订阅流: {'已启用' if self.dynamic_subscription_enabled else '已关闭'} "
+            f"(检查间隔 {fetch_check_minutes}min)"
+        )
 
-        # 2. 探索流采集调度
-        if self.dynamic_explore_enabled:
-            explore_minutes = max(self.dynamic_explore_interval // 60, 30)
+        # 2. 探索流 — 趋势发现 (低频，默认 24h，消耗大量 credit)
+        explore_trend_hours = max(self.dynamic_explore_trend_interval // 3600, 1)
+        self.scheduler.add_job(
+            self._explore_trends_job,
+            trigger=IntervalTrigger(hours=explore_trend_hours),
+            id="explore_trends",
+            name="趋势发现",
+            replace_existing=True,
+        )
+
+        # 3. 探索流 — 关键词搜索 (中频，默认 6h)
+        explore_kw_minutes = max(self.dynamic_explore_keyword_interval // 60, 30)
+        self.scheduler.add_job(
+            self._explore_keywords_job,
+            trigger=IntervalTrigger(minutes=explore_kw_minutes),
+            id="explore_keywords",
+            name="关键词探索",
+            replace_existing=True,
+        )
+        logger.info(
+            f"探索流: {'已启用' if self.dynamic_explore_enabled else '已关闭'} "
+            f"(趋势 {explore_trend_hours}h, 关键词 {explore_kw_minutes}min)"
+        )
+
+        # 4. 独立 AI 分析定时任务
+        if self.analyzer:
+            analysis_check_minutes = max(settings.analysis_check_interval // 60, 5)
             self.scheduler.add_job(
-                self.run_explore_cycle,
-                trigger=IntervalTrigger(minutes=explore_minutes),
-                id="explore_cycle",
-                name="探索流采集",
+                self.run_ai_analysis_job,
+                trigger=IntervalTrigger(minutes=analysis_check_minutes),
+                id="ai_analysis",
+                name="AI 分析",
                 replace_existing=True,
             )
-            logger.info(f"探索流已启用: 每 {explore_minutes} 分钟采集一次")
+            logger.info(
+                f"AI 分析: 已启用 (间隔 {analysis_check_minutes}min, "
+                f"每轮上限 {settings.analysis_batch_size} 条)"
+            )
+        else:
+            logger.info("AI 分析: 未启用 (knot_enabled=false)")
 
-        # 3. 推送调度 (按固定时间点)
+        # 5. 推送调度 (时间窗口 + 批量简报，启停由 handler 动态判断)
         notify_times = [
             t.strip()
             for t in self.dynamic_notify_schedule.split(",")
@@ -983,23 +1199,25 @@ class InfoHunter:
                 )
             except ValueError:
                 logger.warning(f"无效的推送时间格式: {time_str}")
-        if notify_times:
-            logger.info(f"推送调度已配置: {', '.join(notify_times)}")
+        logger.info(
+            f"推送: {'已启用' if self.dynamic_notify_enabled else '已关闭'} "
+            f"({', '.join(notify_times)})"
+        )
 
-        # 4. 日报 (每天 9:00)
+        # 6. 日报 (每天 09:30，在简报之后，提供 24h 全量视角)
         self.scheduler.add_job(
             self.send_daily_report,
-            trigger=CronTrigger(hour=9, minute=0, timezone=self.SERVER_TZ),
+            trigger=CronTrigger(hour=9, minute=30, timezone=self.SERVER_TZ),
             id="daily_report",
             name="日报推送",
             replace_existing=True,
         )
 
-        # 5. 周报 (每周一 9:30)
+        # 7. 周报 (每周一 10:00，与日报/简报错开)
         self.scheduler.add_job(
             self.send_weekly_report,
             trigger=CronTrigger(
-                day_of_week=0, hour=9, minute=30, timezone=self.SERVER_TZ
+                day_of_week=0, hour=10, minute=0, timezone=self.SERVER_TZ
             ),
             id="weekly_report",
             name="周报推送",
@@ -1008,9 +1226,10 @@ class InfoHunter:
 
         self.scheduler.start()
 
-        # 首次采集 (仅订阅流，探索流等待调度器触发，避免启动时消耗大量 credit)
-        logger.info("执行首次订阅流采集...")
-        await self.run_fetch_cycle()
+        # 首次采集 (仅订阅流，探索流等待调度器触发)
+        if self.dynamic_subscription_enabled:
+            logger.info("执行首次订阅流采集...")
+            await self.run_fetch_cycle()
         self.is_first_run = False
         logger.info("探索流将在下一个调度周期自动执行 (不在启动时立即执行以节省 credit)")
 

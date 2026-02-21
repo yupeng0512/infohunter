@@ -14,17 +14,17 @@ class SubscriptionCreate(BaseModel):
 
     name: str = Field(..., description="订阅名称", examples=["AI 趋势追踪"])
     source: str = Field(
-        ..., description="数据源: twitter / youtube", pattern="^(twitter|youtube)$"
+        ..., description="数据源: twitter / youtube / blog", pattern="^(twitter|youtube|blog)$"
     )
     type: str = Field(
         ...,
-        description="订阅类型: keyword / author / topic",
-        pattern="^(keyword|author|topic)$",
+        description="订阅类型: keyword / author / topic / feed",
+        pattern="^(keyword|author|topic|feed)$",
     )
     target: str = Field(
         ...,
-        description="订阅目标: 关键词 / @用户 / 频道ID",
-        examples=["AI OR LLM", "@sama", "UCxxxxxx"],
+        description="订阅目标: 关键词 / @用户 / 频道ID / RSS Feed URL",
+        examples=["AI OR LLM", "@sama", "UCxxxxxx", "https://example.com/feed.xml"],
     )
     filters: Optional[dict] = Field(
         default=None,
@@ -32,7 +32,7 @@ class SubscriptionCreate(BaseModel):
         examples=[{"min_likes": 100, "language": "en", "sort": "Latest"}],
     )
     fetch_interval: int = Field(
-        default=14400, description="采集间隔 (秒), 默认 4 小时", ge=300, le=86400
+        default=14400, description="采集间隔 (秒), 默认 4 小时", ge=300, le=604800
     )
     ai_analysis_enabled: bool = Field(default=True, description="是否启用 AI 分析")
     notification_enabled: bool = Field(default=True, description="是否启用通知")
@@ -44,7 +44,7 @@ class SubscriptionUpdate(BaseModel):
     name: Optional[str] = None
     target: Optional[str] = None
     filters: Optional[dict] = None
-    fetch_interval: Optional[int] = Field(default=None, ge=300, le=86400)
+    fetch_interval: Optional[int] = Field(default=None, ge=300, le=604800)
     ai_analysis_enabled: Optional[bool] = None
     notification_enabled: Optional[bool] = None
     status: Optional[str] = Field(default=None, pattern="^(active|paused)$")

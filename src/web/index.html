@@ -35,6 +35,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M20 12a8 8 0 0 0-8-8v8h8z" fill="currentColor" opacity="0.15"/></svg>
                     <span>AI 分析</span>
                 </button>
+                <button class="nav-btn" data-tab="costs">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    <span>成本</span>
+                </button>
                 <button class="nav-btn" data-tab="settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     <span>设置</span>
@@ -68,32 +72,24 @@
                     <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> YouTube</div>
                     <div class="value youtube" id="stat-youtube">—</div>
                 </div>
+                <div class="stat-card">
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg> Blog/RSS</div>
+                    <div class="value emerald" id="stat-blog">—</div>
+                </div>
             </div>
 
             <div class="actions-grid">
-                <div class="action-card" onclick="triggerFetch()">
+                <div class="action-card" onclick="triggerSmartCollect()">
                     <div class="action-icon purple">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                     </div>
-                    <div><div class="action-label">手动采集</div><div class="action-desc">立即触发一轮数据采集</div></div>
+                    <div><div class="action-label">智能采集</div><div class="action-desc">采集订阅 + 探索趋势 + AI 分析</div></div>
                 </div>
                 <div class="action-card" onclick="triggerDailyReport()">
                     <div class="action-icon green">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
                     </div>
                     <div><div class="action-label">生成日报</div><div class="action-desc">AI 趋势分析 + 飞书推送</div></div>
-                </div>
-                <div class="action-card" onclick="triggerExplore()">
-                    <div class="action-icon amber">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
-                    </div>
-                    <div><div class="action-label">探索发现</div><div class="action-desc">发现全球热门趋势</div></div>
-                </div>
-                <div class="action-card" onclick="triggerNotify()">
-                    <div class="action-icon rose">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                    </div>
-                    <div><div class="action-label">立即推送</div><div class="action-desc">推送待通知内容到飞书</div></div>
                 </div>
                 <div class="action-card" onclick="switchTab('analyze')">
                     <div class="action-icon blue">
@@ -121,6 +117,10 @@
                     <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> 推送时间</div>
                     <div class="value" id="stat-schedule" style="font-size:14px">—</div>
                 </div>
+                <div class="stat-card">
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg> Twitter Credit</div>
+                    <div class="value" id="stat-credits-used" style="font-size:13px">—</div>
+                </div>
             </div>
         </div>
 
@@ -132,10 +132,24 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
                         订阅管理
                     </div>
-                    <button class="btn btn-accent" onclick="showCreateModal()">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        新建订阅
-                    </button>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn btn-ghost" onclick="showOpmlModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            导入 OPML
+                        </button>
+                        <button class="btn btn-accent" onclick="showCreateModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            新建订阅
+                        </button>
+                    </div>
+                </div>
+                <!-- 筛选 Tab -->
+                <div style="display:flex;gap:4px;padding:12px 22px 0;flex-wrap:wrap" id="sub-filters">
+                    <button class="btn btn-ghost btn-sm sub-filter-btn active" data-filter="" onclick="filterSubs(this)">全部</button>
+                    <button class="btn btn-ghost btn-sm sub-filter-btn" data-filter="keyword" onclick="filterSubs(this)">关键词</button>
+                    <button class="btn btn-ghost btn-sm sub-filter-btn" data-filter="author" onclick="filterSubs(this)">博主</button>
+                    <button class="btn btn-ghost btn-sm sub-filter-btn" data-filter="feed" onclick="filterSubs(this)">RSS</button>
+                    <button class="btn btn-ghost btn-sm sub-filter-btn" data-filter="topic" onclick="filterSubs(this)">话题</button>
                 </div>
                 <div id="sub-list">
                     <div class="loading-state"><div class="spinner"></div><div style="font-size:13px;color:var(--text-dim)">加载中</div></div>
@@ -156,6 +170,7 @@
                             <option value="">全部来源</option>
                             <option value="twitter">Twitter</option>
                             <option value="youtube">YouTube</option>
+                            <option value="blog">Blog / RSS</option>
                         </select>
                     </div>
                 </div>
@@ -196,6 +211,100 @@
             </div>
         </div>
 
+        <!-- Cost Monitor -->
+        <div id="costs" class="section">
+            <!-- Budget Overview -->
+            <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+                <div class="stat-card">
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> 今日消耗</div>
+                    <div class="value amber" id="cost-today">—</div>
+                    <div class="cost-sub" id="cost-today-sub"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> 本周消耗</div>
+                    <div class="value" id="cost-week">—</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 月均日消耗</div>
+                    <div class="value" id="cost-avg-daily">—</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> 预估月费</div>
+                    <div class="value emerald" id="cost-monthly">—</div>
+                </div>
+            </div>
+
+            <!-- Budget Progress Bar -->
+            <div class="panel" style="margin-bottom:20px">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        今日预算进度
+                    </div>
+                    <span id="cost-budget-text" style="font-size:13px;color:var(--text-dim)">—</span>
+                </div>
+                <div style="padding:16px 22px">
+                    <div class="budget-bar-track">
+                        <div class="budget-bar-fill" id="cost-budget-fill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Daily Trend Chart -->
+            <div class="panel" style="margin-bottom:20px">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        每日消耗趋势 (最近 30 天)
+                    </div>
+                    <button class="btn btn-ghost" onclick="loadCostData()">刷新</button>
+                </div>
+                <div style="padding:16px 22px;overflow-x:auto">
+                    <div class="chart-container" id="cost-chart"></div>
+                </div>
+            </div>
+
+            <!-- Operation Breakdown -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/></svg>
+                            今日消耗分布
+                        </div>
+                    </div>
+                    <div id="cost-breakdown-today" style="padding:16px 22px">
+                        <div class="loading-state"><div class="spinner"></div></div>
+                    </div>
+                </div>
+                <div class="panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/></svg>
+                            本周消耗分布
+                        </div>
+                    </div>
+                    <div id="cost-breakdown-week" style="padding:16px 22px">
+                        <div class="loading-state"><div class="spinner"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Records -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        最近 API 调用记录
+                    </div>
+                    <button class="btn btn-ghost" onclick="loadCostRecords()">刷新</button>
+                </div>
+                <div id="cost-records">
+                    <div class="loading-state"><div class="spinner"></div></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Settings -->
         <div id="settings" class="section">
             <div class="panel">
@@ -208,33 +317,29 @@
                 </div>
 
                 <div class="settings-grid">
-                    <!-- 飞书通知 -->
+                    <!-- 订阅流 -->
                     <div class="settings-section">
-                        <h4 class="settings-title">飞书通知</h4>
+                        <h4 class="settings-title">订阅流 (Following)</h4>
                         <div class="form-group">
-                            <label class="form-label">Webhook URL</label>
-                            <input class="form-input" id="set-feishu-url" placeholder="https://www.feishu.cn/flow/api/...">
+                            <label class="form-label">
+                                <input type="checkbox" id="set-sub-enabled" checked style="margin-right:6px"> 启用订阅流
+                            </label>
+                            <div class="form-hint">关闭后不再定时采集已订阅的博主/关键词</div>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">签名密钥 (可选)</label>
-                            <input class="form-input" id="set-feishu-secret" placeholder="留空则不签名" type="password">
-                        </div>
-                    </div>
-
-                    <!-- 推送调度 -->
-                    <div class="settings-section">
-                        <h4 class="settings-title">推送调度</h4>
-                        <div class="form-group">
-                            <label class="form-label">推送时间 (HH:MM, 逗号分隔)</label>
-                            <input class="form-input" id="set-notify-schedule" placeholder="09:00,13:00,18:00">
+                            <label class="form-label">默认采集间隔</label>
+                            <select class="form-select" id="set-fetch-interval">
+                                <option value="3600">1 小时</option>
+                                <option value="7200">2 小时</option>
+                                <option value="14400">4 小时</option>
+                                <option value="28800">8 小时</option>
+                                <option value="43200">12 小时</option>
+                                <option value="86400">24 小时</option>
+                            </select>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">每批最大推送数</label>
-                            <input class="form-input" id="set-notify-batch" type="number" min="1" max="100" placeholder="20">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">推送质量阈值 (0-1)</label>
-                            <input class="form-input" id="set-notify-threshold" type="number" min="0" max="1" step="0.1" placeholder="0.6">
+                            <label class="form-label">最低质量评分 (0-1)</label>
+                            <input class="form-input" id="set-min-quality" type="number" min="0" max="1" step="0.1" placeholder="0.3">
                         </div>
                     </div>
 
@@ -245,15 +350,27 @@
                             <label class="form-label">
                                 <input type="checkbox" id="set-explore-enabled" style="margin-right:6px"> 启用探索流
                             </label>
+                            <div class="form-hint">关闭后不再自动发现热门趋势和探索关键词</div>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">采集间隔</label>
-                            <select class="form-select" id="set-explore-interval">
+                            <label class="form-label">趋势发现间隔 (高 credit 消耗)</label>
+                            <select class="form-select" id="set-explore-trend-interval">
+                                <option value="43200">12 小时</option>
+                                <option value="86400">24 小时 (推荐)</option>
+                                <option value="172800">48 小时</option>
+                                <option value="604800">7 天</option>
+                            </select>
+                            <div class="form-hint">Twitter 趋势 + YouTube 热门。每轮约消耗 1350+ credits</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">关键词探索间隔 (低 credit 消耗)</label>
+                            <select class="form-select" id="set-explore-keyword-interval">
                                 <option value="10800">3 小时</option>
-                                <option value="21600">6 小时</option>
+                                <option value="21600">6 小时 (推荐)</option>
                                 <option value="43200">12 小时</option>
                                 <option value="86400">24 小时</option>
                             </select>
+                            <div class="form-hint">用户自定义关键词搜索。每个关键词约 75 credits</div>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Twitter 趋势地区 (WOEID, 逗号分隔)</label>
@@ -269,7 +386,7 @@
                             <input class="form-input" id="set-explore-keywords" placeholder="AI agent,LLM,AGI">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">每个地区取 Top N 趋势搜索</label>
+                            <label class="form-label">每个地区取 Top N 趋势</label>
                             <select class="form-select" id="set-explore-max-trends">
                                 <option value="1">1 (最省 credit)</option>
                                 <option value="2">2 (推荐)</option>
@@ -286,30 +403,66 @@
                                 <option value="10">10 条</option>
                             </select>
                         </div>
+                    </div>
+
+                    <!-- 推送通知 -->
+                    <div class="settings-section">
+                        <h4 class="settings-title">推送通知</h4>
                         <div class="form-group">
-                            <label class="form-label">Twitter 每日 Credit 上限</label>
-                            <input class="form-input" id="set-twitter-credit-limit" type="number" min="0" step="500" placeholder="5000">
-                            <div class="form-hint">0 = 不限制。趋势 450/次，搜索 75/次</div>
+                            <label class="form-label">
+                                <input type="checkbox" id="set-notify-enabled" checked style="margin-right:6px"> 启用定时推送
+                            </label>
+                            <div class="form-hint">关闭后内容仍会采集入库，但不推送飞书通知</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">推送时间 (HH:MM, 逗号分隔)</label>
+                            <input class="form-input" id="set-notify-schedule" placeholder="09:00,13:00,18:00">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">推送质量阈值 (0-1)</label>
+                            <input class="form-input" id="set-notify-threshold" type="number" min="0" max="1" step="0.1" placeholder="0.6">
                         </div>
                     </div>
 
-                    <!-- 采集配置 -->
+                    <!-- AI 分析配置 -->
                     <div class="settings-section">
-                        <h4 class="settings-title">采集配置</h4>
+                        <h4 class="settings-title">AI 分析</h4>
                         <div class="form-group">
-                            <label class="form-label">默认采集间隔</label>
-                            <select class="form-select" id="set-fetch-interval">
-                                <option value="3600">1 小时</option>
-                                <option value="7200">2 小时</option>
-                                <option value="14400">4 小时</option>
-                                <option value="28800">8 小时</option>
-                                <option value="43200">12 小时</option>
-                                <option value="86400">24 小时</option>
+                            <label class="form-label">分析侧重点</label>
+                            <select class="form-input" id="set-analysis-focus">
+                                <option value="comprehensive">综合分析（默认）</option>
+                                <option value="opportunity">发现机会（创业/投资/技术应用）</option>
+                                <option value="frontier">前沿动态（技术趋势/行业变化）</option>
+                                <option value="knowledge">知识拓展（学习/原理/深度理解）</option>
                             </select>
+                            <div class="form-hint">影响 AI 分析报告的内容侧重方向</div>
+                        </div>
+                    </div>
+
+                    <!-- 飞书配置 -->
+                    <div class="settings-section">
+                        <h4 class="settings-title">飞书 Webhook</h4>
+                        <div class="form-group">
+                            <label class="form-label">Webhook URL</label>
+                            <input class="form-input" id="set-feishu-url" placeholder="https://www.feishu.cn/flow/api/...">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">最低质量评分 (0-1)</label>
-                            <input class="form-input" id="set-min-quality" type="number" min="0" max="1" step="0.1" placeholder="0.3">
+                            <label class="form-label">签名密钥 (可选)</label>
+                            <input class="form-input" id="set-feishu-secret" placeholder="留空则不签名" type="password">
+                        </div>
+                    </div>
+
+                    <!-- Credit 控制 -->
+                    <div class="settings-section">
+                        <h4 class="settings-title">Twitter Credit 控制</h4>
+                        <div class="form-group">
+                            <label class="form-label">每日 Credit 上限</label>
+                            <input class="form-input" id="set-twitter-credit-limit" type="number" min="0" step="500" placeholder="5000">
+                            <div class="form-hint">0 = 不限制。趋势 450/次，搜索 75/次</div>
+                        </div>
+                        <div class="form-group" id="credit-usage-display" style="padding:10px;background:var(--bg);border-radius:8px">
+                            <div style="font-size:12px;color:var(--text-dim)">今日已用</div>
+                            <div style="font-size:18px;font-weight:600" id="stat-credits-used">—</div>
                         </div>
                     </div>
                 </div>
@@ -341,9 +494,10 @@
             </div>
             <div class="form-group">
                 <label class="form-label">数据源</label>
-                <select class="form-select" id="sub-source">
+                <select class="form-select" id="sub-source" onchange="updateSourceOptions()">
                     <option value="twitter">Twitter</option>
                     <option value="youtube">YouTube</option>
+                    <option value="blog">Blog / RSS</option>
                 </select>
             </div>
             <div class="form-group">
@@ -352,6 +506,7 @@
                     <option value="keyword">关键词搜索</option>
                     <option value="author">博主/频道订阅</option>
                     <option value="topic">话题追踪</option>
+                    <option value="feed">RSS Feed 订阅</option>
                 </select>
             </div>
             <div class="form-group">
@@ -373,6 +528,38 @@
             <div class="form-actions">
                 <button class="btn btn-ghost" onclick="closeModal()">取消</button>
                 <button class="btn btn-accent" onclick="createSubscription()">创建订阅</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- OPML Import Modal -->
+    <div class="modal-overlay" id="opml-modal" onclick="if(event.target===this)closeOpmlModal()">
+        <div class="modal">
+            <h3>导入 OPML</h3>
+            <p style="color:var(--text-dim);font-size:13px;margin-bottom:16px">
+                上传 OPML 文件，批量导入 RSS/Blog 订阅源。支持从 Feedly、Inoreader 等 RSS 阅读器导出的 OPML 格式。
+            </p>
+            <div class="form-group">
+                <label class="form-label">OPML 文件</label>
+                <input type="file" class="form-input" id="opml-file" accept=".opml,.xml" style="padding:10px">
+            </div>
+            <div class="form-group">
+                <label class="form-label">采集间隔</label>
+                <select class="form-select" id="opml-interval">
+                    <option value="21600">6 小时</option>
+                    <option value="43200" selected>12 小时 (推荐)</option>
+                    <option value="86400">24 小时</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">
+                    <input type="checkbox" id="opml-ai" checked style="margin-right:6px"> 启用 AI 分析
+                </label>
+            </div>
+            <div id="opml-result" style="display:none;margin-bottom:12px;padding:12px;border-radius:8px;background:var(--bg-card);font-size:13px"></div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeOpmlModal()">取消</button>
+                <button class="btn btn-accent" onclick="importOpml()" id="opml-import-btn">导入</button>
             </div>
         </div>
     </div>

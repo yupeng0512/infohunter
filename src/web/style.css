@@ -118,7 +118,7 @@ body::before {
 @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 
 /* ===== STATS ===== */
-.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
 
 .stat-card {
     background: var(--bg-card);
@@ -199,6 +199,8 @@ body::before {
 
 .tag-twitter { background: rgba(29,155,240,0.12); color: var(--twitter); }
 .tag-youtube { background: rgba(255,0,51,0.12); color: var(--youtube); }
+.tag-blog { background: rgba(16,185,129,0.12); color: var(--emerald); }
+.tag-feed { background: rgba(99,102,241,0.12); color: var(--accent-soft); }
 .tag-active { background: rgba(16,185,129,0.12); color: var(--emerald); }
 .tag-paused { background: rgba(245,158,11,0.12); color: var(--amber); }
 .tag-keyword { background: rgba(99,102,241,0.1); color: var(--accent-soft); }
@@ -409,6 +411,136 @@ body::before {
 .toast.success { border-color: var(--emerald); }
 .toast.error { border-color: var(--rose); }
 
+/* ===== SUB FILTER ===== */
+.sub-filter-btn {
+    border: 1px solid var(--border) !important;
+    font-size: 12px !important; padding: 4px 12px !important;
+    border-radius: 16px !important; transition: all 0.2s;
+}
+.sub-filter-btn.active {
+    background: var(--accent) !important; border-color: var(--accent) !important;
+    color: #fff !important;
+}
+
+/* ===== COST MONITOR ===== */
+.cost-sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+.budget-bar-track {
+    width: 100%; height: 12px;
+    background: var(--bg-deep); border-radius: 6px; overflow: hidden;
+    position: relative;
+}
+
+.budget-bar-fill {
+    height: 100%; border-radius: 6px;
+    background: linear-gradient(90deg, var(--emerald), #34d399);
+    transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+}
+
+.budget-bar-fill.warning { background: linear-gradient(90deg, var(--amber), #fbbf24); }
+.budget-bar-fill.danger { background: linear-gradient(90deg, var(--rose), #fb7185); }
+
+/* Bar Chart */
+.chart-container {
+    display: flex; align-items: flex-end; gap: 2px;
+    min-height: 180px; position: relative;
+    padding-bottom: 24px;
+}
+
+.bar-col {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    flex-shrink: 0;
+}
+
+.bar-col.today .bar { background: linear-gradient(180deg, var(--accent), var(--accent-soft)) !important; }
+.bar-col.today .bar-label { color: var(--accent-soft); font-weight: 600; }
+
+.bar {
+    width: 100%; border-radius: 3px 3px 0 0;
+    background: linear-gradient(180deg, rgba(99,102,241,0.5), rgba(99,102,241,0.2));
+    transition: height 0.3s ease;
+    min-width: 8px;
+}
+
+.bar-value {
+    font-size: 9px; color: var(--text-dim); white-space: nowrap;
+    transform: rotate(-45deg); transform-origin: center;
+    height: 16px;
+}
+
+.bar-label { font-size: 9px; color: var(--text-muted); white-space: nowrap; }
+
+.bar-limit-line {
+    position: absolute; left: 0; right: 0;
+    border-top: 1px dashed var(--rose);
+    pointer-events: none;
+}
+
+.bar-limit-line span {
+    position: absolute; right: 4px; top: -14px;
+    font-size: 10px; color: var(--rose); font-weight: 600;
+}
+
+/* Breakdown */
+.breakdown-row {
+    display: grid; grid-template-columns: 140px 1fr 100px 60px;
+    align-items: center; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 13px;
+}
+
+.breakdown-row:last-of-type { border-bottom: none; }
+
+.breakdown-label { display: flex; align-items: center; gap: 6px; }
+.breakdown-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.breakdown-ctx { font-size: 10px; color: var(--text-muted); padding: 1px 5px; background: rgba(255,255,255,0.04); border-radius: 3px; }
+
+.breakdown-bar-track {
+    height: 6px; background: var(--bg-deep); border-radius: 3px; overflow: hidden;
+}
+
+.breakdown-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+
+.breakdown-value { text-align: right; font-weight: 600; font-size: 13px; }
+.breakdown-pct { font-weight: 400; color: var(--text-dim); font-size: 11px; }
+.breakdown-calls { text-align: right; font-size: 11px; color: var(--text-dim); }
+
+.breakdown-total {
+    text-align: right; padding-top: 10px; margin-top: 6px;
+    border-top: 1px solid var(--border);
+    font-size: 13px; font-weight: 600; color: var(--text-dim);
+}
+
+/* Credit Records Table */
+.credit-records-table { font-size: 13px; }
+
+.cr-header {
+    display: grid; grid-template-columns: 120px 100px 1fr 70px 80px;
+    padding: 10px 22px; font-size: 11px; font-weight: 600;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-deep);
+}
+
+.cr-row {
+    display: grid; grid-template-columns: 120px 100px 1fr 70px 80px;
+    padding: 8px 22px; border-bottom: 1px solid rgba(255,255,255,0.03);
+    align-items: center;
+    transition: background 0.15s;
+}
+
+.cr-row:hover { background: var(--bg-card-hover); }
+.cr-row:last-child { border-bottom: none; }
+
+.cr-col-time { color: var(--text-dim); font-size: 12px; }
+.cr-col-op { display: flex; align-items: center; gap: 5px; }
+.cr-col-detail { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-col-credits { text-align: right; font-weight: 600; font-family: var(--font-heading); }
+
+.tag-explore { background: rgba(245,158,11,0.1); color: var(--amber); }
+.tag-subscription { background: rgba(16,185,129,0.1); color: var(--emerald); }
+.tag-manual { background: rgba(99,102,241,0.1); color: var(--accent-soft); }
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
     .stats-row { grid-template-columns: repeat(2, 1fr); }
@@ -420,6 +552,9 @@ body::before {
     .sub-row { flex-direction: column; align-items: flex-start; gap: 10px; }
     .sub-actions { width: 100%; }
     .analyze-input-row { flex-direction: column; }
+    #costs .panel + div { grid-template-columns: 1fr !important; }
+    .breakdown-row { grid-template-columns: 110px 1fr 80px 50px; }
+    .cr-header, .cr-row { grid-template-columns: 90px 80px 1fr 60px 60px; font-size: 11px; }
 }
 
 @media (max-width: 480px) {

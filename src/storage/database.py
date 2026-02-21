@@ -3,7 +3,7 @@
 InfoHunter 多源数据存储管理器。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Optional
 
@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, func, select, and_
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import settings
-from .models import Base, Content, FetchLog, Subscription, SystemConfig
+from .models import Base, Content, CreditUsage, FetchLog, Subscription, SystemConfig
 
 
 class DatabaseManager:
@@ -37,7 +37,28 @@ class DatabaseManager:
         """初始化数据库表"""
         logger.info("初始化数据库表...")
         Base.metadata.create_all(bind=self.engine)
+        self._run_migrations()
         logger.info("数据库表初始化完成")
+
+    def _run_migrations(self) -> None:
+        """执行必要的数据库迁移 (幂等)"""
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(self.engine)
+        if "contents" not in inspector.get_table_names():
+            return
+
+        columns = {c["name"]: c for c in inspector.get_columns("contents")}
+        content_id_col = columns.get("content_id")
+        if content_id_col and getattr(content_id_col["type"], "length", 0) < 512:
+            try:
+                with self.engine.begin() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE contents MODIFY COLUMN content_id VARCHAR(512) NOT NULL"
+                    ))
+                logger.info("迁移: contents.content_id 扩展到 VARCHAR(512)")
+            except Exception as e:
+                logger.warning(f"迁移 content_id 列失败 (可能已完成): {e}")
 
     def get_session(self) -> Session:
         """获取数据库会话"""
@@ -66,6 +87,7 @@ class DatabaseManager:
     def list_subscriptions(
         self,
         source: Optional[str] = None,
+        sub_type: Optional[str] = None,
         status: str = "active",
     ) -> list[Subscription]:
         """列出订阅"""
@@ -73,6 +95,8 @@ class DatabaseManager:
             query = select(Subscription)
             if source:
                 query = query.where(Subscription.source == source)
+            if sub_type:
+                query = query.where(Subscription.type == sub_type)
             if status:
                 query = query.where(Subscription.status == status)
             query = query.order_by(Subscription.created_at.desc())
@@ -203,8 +227,9 @@ class DatabaseManager:
         self,
         limit: int = 50,
         min_quality: Optional[float] = None,
+        require_analyzed: bool = True,
     ) -> list[Content]:
-        """获取未通知的内容"""
+        """获取未通知的内容（默认要求已通过 AI 分析）"""
         with self.get_session() as session:
             query = (
                 select(Content)
@@ -212,6 +237,8 @@ class DatabaseManager:
                 .order_by(Content.posted_at.desc())
                 .limit(limit)
             )
+            if require_analyzed:
+                query = query.where(Content.ai_analyzed_at != None)
             if min_quality is not None:
                 query = query.where(Content.quality_score >= min_quality)
             contents = session.execute(query).scalars().all()
@@ -228,13 +255,120 @@ class DatabaseManager:
             ).scalars().all()
             return [self._detach(c, Content) for c in contents]
 
-    def update_ai_analysis(self, content_id: int, analysis: dict) -> None:
-        """更新内容的 AI 分析结果"""
+    def get_unanalyzed_contents_prioritized(self, limit: int = 20) -> list[Content]:
+        """按优先级获取未分析内容
+
+        优先级策略：
+        1. 有订阅关联的（订阅流）> 无订阅关联的（探索流）
+        2. 发布时间越新越优先
+        3. 同等条件下按入库时间排序
+        """
+        from sqlalchemy import case
+
+        with self.get_session() as session:
+            source_priority = case(
+                (Content.subscription_id != None, 0),
+                else_=1,
+            )
+            contents = session.execute(
+                select(Content)
+                .where(Content.ai_analyzed_at == None)
+                .order_by(
+                    source_priority.asc(),
+                    Content.posted_at.desc().nulls_last(),
+                    Content.created_at.desc(),
+                )
+                .limit(limit)
+            ).scalars().all()
+            return [self._detach(c, Content) for c in contents]
+
+    def get_analyzed_contents_in_window(
+        self,
+        window_start: datetime,
+        window_end: datetime,
+        notified: Optional[bool] = None,
+        min_importance: Optional[int] = None,
+        limit: int = 50,
+    ) -> list[Content]:
+        """获取时间窗口内已分析的内容
+
+        Args:
+            window_start: 窗口开始时间
+            window_end: 窗口结束时间
+            notified: None=不过滤, True=已推送, False=未推送
+            min_importance: 最低 importance 分值过滤
+            limit: 返回条数上限
+        """
+        with self.get_session() as session:
+            query = (
+                select(Content)
+                .where(
+                    and_(
+                        Content.ai_analyzed_at != None,
+                        Content.ai_analyzed_at >= window_start,
+                        Content.ai_analyzed_at < window_end,
+                    )
+                )
+            )
+            if notified is not None:
+                query = query.where(Content.notified == notified)
+
+            query = query.order_by(
+                Content.quality_score.desc().nulls_last(),
+                Content.posted_at.desc(),
+            ).limit(limit)
+
+            contents = session.execute(query).scalars().all()
+            return [self._detach(c, Content) for c in contents]
+
+    def get_unnotified_analyzed_since(
+        self,
+        since: datetime,
+        limit: int = 50,
+    ) -> list[Content]:
+        """获取指定时间之后已分析但未推送的内容"""
+        with self.get_session() as session:
+            contents = session.execute(
+                select(Content)
+                .where(
+                    and_(
+                        Content.ai_analyzed_at != None,
+                        Content.notified == False,
+                        Content.ai_analyzed_at >= since,
+                    )
+                )
+                .order_by(Content.quality_score.desc().nulls_last())
+                .limit(limit)
+            ).scalars().all()
+            return [self._detach(c, Content) for c in contents]
+
+    def get_last_notify_time(self) -> Optional[datetime]:
+        """获取最近一次推送时间"""
+        with self.get_session() as session:
+            result = session.execute(
+                select(func.max(Content.notified_at))
+                .where(Content.notified == True)
+            ).scalar()
+            return result
+
+    def update_ai_analysis(
+        self,
+        content_id: int,
+        analysis: dict,
+        importance: Optional[int] = None,
+    ) -> None:
+        """更新内容的 AI 分析结果，同时写入 importance 映射的 quality_score"""
+        values: dict = {
+            "ai_analysis": analysis,
+            "ai_analyzed_at": datetime.now(),
+        }
+        if importance is not None:
+            values["quality_score"] = importance / 10.0
         with self.get_session() as session:
             session.execute(
                 Content.__table__.update()
                 .where(Content.id == content_id)
-                .values(ai_analysis=analysis, ai_analyzed_at=datetime.now())
+                .values(**values)
             )
             session.commit()
 
@@ -369,12 +503,14 @@ class DatabaseManager:
                 query = query.where(Content.source == source)
             return session.execute(query).scalar() or 0
 
-    def get_subscription_count(self, status: str = "active") -> int:
+    def get_subscription_count(self, status: str = "active", source: Optional[str] = None) -> int:
         """获取订阅数"""
         with self.get_session() as session:
             query = select(func.count(Subscription.id))
             if status:
                 query = query.where(Subscription.status == status)
+            if source:
+                query = query.where(Subscription.source == source)
             return session.execute(query).scalar() or 0
 
     # ===== 系统配置 =====
@@ -435,6 +571,151 @@ class DatabaseManager:
             session.delete(config)
             session.commit()
             return True
+
+    # ===== Credit 消耗追踪 =====
+
+    def log_credit_usage(
+        self,
+        source: str,
+        operation: str,
+        credits: int,
+        detail: Optional[str] = None,
+        context: str = "explore",
+    ) -> CreditUsage:
+        """记录一次 API credit 消耗"""
+        with self.get_session() as session:
+            record = CreditUsage(
+                source=source,
+                operation=operation,
+                credits=credits,
+                detail=detail[:255] if detail and len(detail) > 255 else detail,
+                context=context,
+            )
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def get_credit_usage_today(self, source: Optional[str] = None) -> int:
+        """获取今日 credit 消耗总量"""
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        with self.get_session() as session:
+            query = select(func.coalesce(func.sum(CreditUsage.credits), 0)).where(
+                CreditUsage.created_at >= today
+            )
+            if source:
+                query = query.where(CreditUsage.source == source)
+            return session.execute(query).scalar() or 0
+
+    def get_credit_usage_range(
+        self,
+        since: datetime,
+        until: Optional[datetime] = None,
+        source: Optional[str] = None,
+    ) -> list[dict]:
+        """获取时间范围内按日分组的 credit 消耗统计"""
+        with self.get_session() as session:
+            date_col = func.date(CreditUsage.created_at).label("date")
+            query = (
+                select(
+                    date_col,
+                    CreditUsage.operation,
+                    CreditUsage.context,
+                    func.sum(CreditUsage.credits).label("total_credits"),
+                    func.count(CreditUsage.id).label("call_count"),
+                )
+                .where(CreditUsage.created_at >= since)
+                .group_by(date_col, CreditUsage.operation, CreditUsage.context)
+                .order_by(date_col.desc())
+            )
+            if until:
+                query = query.where(CreditUsage.created_at < until)
+            if source:
+                query = query.where(CreditUsage.source == source)
+            rows = session.execute(query).all()
+            return [
+                {
+                    "date": str(r.date),
+                    "operation": r.operation,
+                    "context": r.context,
+                    "total_credits": r.total_credits,
+                    "call_count": r.call_count,
+                }
+                for r in rows
+            ]
+
+    def get_credit_daily_totals(
+        self, days: int = 30, source: Optional[str] = None
+    ) -> list[dict]:
+        """获取最近 N 天每日 credit 总消耗"""
+        since = datetime.now() - timedelta(days=days)
+        with self.get_session() as session:
+            date_col = func.date(CreditUsage.created_at).label("date")
+            query = (
+                select(
+                    date_col,
+                    func.sum(CreditUsage.credits).label("total_credits"),
+                    func.count(CreditUsage.id).label("call_count"),
+                )
+                .where(CreditUsage.created_at >= since)
+                .group_by(date_col)
+                .order_by(date_col.asc())
+            )
+            if source:
+                query = query.where(CreditUsage.source == source)
+            rows = session.execute(query).all()
+            return [
+                {
+                    "date": str(r.date),
+                    "total_credits": r.total_credits,
+                    "call_count": r.call_count,
+                }
+                for r in rows
+            ]
+
+    def get_credit_usage_by_operation(
+        self, since: datetime, source: Optional[str] = None
+    ) -> list[dict]:
+        """获取指定时间后按操作类型分组的 credit 消耗"""
+        with self.get_session() as session:
+            query = (
+                select(
+                    CreditUsage.operation,
+                    CreditUsage.context,
+                    func.sum(CreditUsage.credits).label("total_credits"),
+                    func.count(CreditUsage.id).label("call_count"),
+                )
+                .where(CreditUsage.created_at >= since)
+                .group_by(CreditUsage.operation, CreditUsage.context)
+                .order_by(func.sum(CreditUsage.credits).desc())
+            )
+            if source:
+                query = query.where(CreditUsage.source == source)
+            rows = session.execute(query).all()
+            return [
+                {
+                    "operation": r.operation,
+                    "context": r.context,
+                    "total_credits": r.total_credits,
+                    "call_count": r.call_count,
+                }
+                for r in rows
+            ]
+
+    def get_credit_recent_records(
+        self, limit: int = 50, source: Optional[str] = None
+    ) -> list[CreditUsage]:
+        """获取最近的 credit 消耗记录"""
+        with self.get_session() as session:
+            query = (
+                select(CreditUsage)
+                .order_by(CreditUsage.created_at.desc())
+                .limit(limit)
+            )
+            if source:
+                query = query.where(CreditUsage.source == source)
+            records = session.execute(query).scalars().all()
+            return [self._detach(r, CreditUsage) for r in records]
 
     # ===== 额外统计 =====
 

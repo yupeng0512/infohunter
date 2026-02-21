@@ -30,10 +30,11 @@ class SubscriptionManager:
     def list_all(
         self,
         source: Optional[str] = None,
+        sub_type: Optional[str] = None,
         status: str = "active",
     ) -> list[Subscription]:
         """列出订阅"""
-        return self.db.list_subscriptions(source=source, status=status)
+        return self.db.list_subscriptions(source=source, sub_type=sub_type, status=status)
 
     def update(self, sub_id: int, data: dict) -> Optional[Subscription]:
         """更新订阅"""
