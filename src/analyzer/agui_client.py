@@ -133,7 +133,9 @@ class AGUIClient:
                     async for line in response.aiter_lines():
                         if not line:
                             continue
-                        chunk_str = line.lstrip("data:").strip()
+                        chunk_str = line.removeprefix("data:").strip()
+                        if not chunk_str:
+                            continue
                         if chunk_str == "[DONE]":
                             break
                         try:
@@ -185,30 +187,65 @@ class AGUIClient:
 
     @staticmethod
     def extract_json(text: str) -> Optional[dict]:
-        """从文本中提取 JSON"""
+        """从文本中提取 JSON，多层容错"""
         if not text:
             return None
 
+        text_stripped = text.strip().lstrip('\ufeff')
+
+        # 1. 直接解析
         try:
-            return json.loads(text)
+            result = json.loads(text_stripped)
+            if isinstance(result, dict):
+                return result
         except json.JSONDecodeError:
             pass
 
+        # 2. 放宽控制字符限制
+        try:
+            result = json.loads(text_stripped, strict=False)
+            if isinstance(result, dict):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+        # 3. 从 markdown 代码块提取
         json_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
         matches = re.findall(json_pattern, text)
         for match in matches:
             try:
-                return json.loads(match)
+                result = json.loads(match, strict=False)
+                if isinstance(result, dict):
+                    return result
             except json.JSONDecodeError:
                 continue
 
-        brace_pattern = r'\{[\s\S]*\}'
-        matches = re.findall(brace_pattern, text)
-        for match in matches:
+        # 4. 贪婪提取最外层 {}
+        brace_start = text.find('{')
+        brace_end = text.rfind('}')
+        if brace_start >= 0 and brace_end > brace_start:
+            candidate = text[brace_start:brace_end + 1]
             try:
-                return json.loads(match)
+                result = json.loads(candidate, strict=False)
+                if isinstance(result, dict):
+                    return result
+            except json.JSONDecodeError as e:
+                logger.debug(
+                    f"extract_json brace extraction failed: {e}, "
+                    f"len={len(candidate)}, near_error={repr(candidate[max(0,e.pos-30):e.pos+30])}"
+                )
+
+        # 5. 清理控制字符 + 修复尾部逗号后重试
+        if brace_start >= 0 and brace_end > brace_start:
+            candidate = text[brace_start:brace_end + 1]
+            candidate = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', candidate)
+            candidate = re.sub(r',\s*([\]}])', r'\1', candidate)
+            try:
+                result = json.loads(candidate, strict=False)
+                if isinstance(result, dict):
+                    return result
             except json.JSONDecodeError:
-                continue
+                pass
 
         return None
 

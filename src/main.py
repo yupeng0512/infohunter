@@ -28,6 +28,7 @@ from src.sources.twitter_search import TwitterSearchClient
 from src.sources.twitter_detail import TwitterDetailClient
 from src.sources.youtube import YouTubeClient
 from src.sources.youtube_transcript import YouTubeTranscriptClient
+from src.sources.transcript_service import TranscriptService
 from src.sources.rss import RSSClient
 from src.analyzer.content_analyzer import ContentAnalyzer, get_content_analyzer
 from src.filter.smart_filter import SmartFilter
@@ -298,6 +299,11 @@ class InfoHunter:
         else:
             logger.warning("ScrapeCreators 未配置")
 
+        # 字幕提取服务（始终可用，主: youtube-transcript-api, 备: ScrapeCreators）
+        self.transcript_service = TranscriptService(
+            fallback_client=self.youtube_transcript
+        )
+
         if settings.youtube_api_key or settings.youtube_oauth_refresh_token:
             self.youtube = YouTubeClient()
             logger.info("YouTube Data API v3 客户端初始化完成")
@@ -547,24 +553,48 @@ class InfoHunter:
         return items
 
     async def _enrich_youtube_transcripts(self, items: list[dict]) -> None:
-        """为高质量 YouTube 视频获取字幕"""
-        if not self.youtube_transcript:
+        """为高质量 YouTube 视频获取字幕
+
+        按互动量降序排序，优先为高互动视频获取字幕，
+        每批上限由 settings.transcript_batch_size 控制。
+        """
+        if not self.transcript_service:
             return
 
-        for item in items[:5]:
-            views = item.get("metrics", {}).get("views", 0)
-            likes = item.get("metrics", {}).get("likes", 0)
+        batch_size = settings.transcript_batch_size
+        candidates = [
+            item for item in items
+            if not item.get("transcript")
+            and item.get("content_id")
+            and (
+                item.get("metrics", {}).get("views", 0) > 1000
+                or item.get("metrics", {}).get("likes", 0) > 50
+            )
+        ]
+        candidates.sort(
+            key=lambda x: (
+                x.get("metrics", {}).get("views", 0)
+                + x.get("metrics", {}).get("likes", 0) * 100
+            ),
+            reverse=True,
+        )
 
-            if views > 1000 or likes > 50:
-                video_id = item.get("content_id")
-                if video_id:
-                    try:
-                        transcript = await self.youtube_transcript.get_transcript(video_id)
-                        if transcript:
-                            item["transcript"] = transcript
-                            logger.debug(f"获取字幕成功: {video_id} ({len(transcript)} chars)")
-                    except Exception as e:
-                        logger.debug(f"获取字幕失败: {video_id}: {e}")
+        fetched = 0
+        for item in candidates[:batch_size]:
+            video_id = item["content_id"]
+            try:
+                transcript = await self.transcript_service.get_transcript(video_id)
+                if transcript:
+                    item["transcript"] = transcript
+                    fetched += 1
+                    logger.info(f"获取字幕成功: {video_id} ({len(transcript)} chars)")
+                else:
+                    logger.warning(f"获取字幕失败 (无可用字幕): {video_id}")
+            except Exception as e:
+                logger.warning(f"获取字幕异常: {video_id}: {e}")
+
+        if candidates:
+            logger.info(f"字幕获取: {fetched}/{len(candidates[:batch_size])} 成功")
 
     # ========== 探索流 (Explore/Discover) ==========
 
@@ -710,13 +740,13 @@ class InfoHunter:
                         item["quality_score"] = self._calc_quality_score(item)
                     items = [i for i in items if i.get("quality_score", 0) >= self.dynamic_min_quality_score]
 
+                # 先获取字幕，再保存（确保字幕入库）
+                if items:
+                    await self._enrich_youtube_transcripts(items)
+
                 if items:
                     new_count, _ = self.db.save_contents_batch(items)
                     new_total += new_count
-
-                # 为热门视频获取字幕
-                if items and self.youtube_transcript:
-                    await self._enrich_youtube_transcripts(items)
 
             except Exception as e:
                 logger.error(f"YouTube 热门探索失败 (region={region}): {e}")
@@ -902,6 +932,26 @@ class InfoHunter:
             analyzed_count = 0
             for content in unanalyzed:
                 try:
+                    # 为缺少字幕的高价值 YouTube 视频自动补充
+                    if (
+                        content.source == "youtube"
+                        and not content.transcript
+                        and self.transcript_service
+                    ):
+                        views = (content.metrics or {}).get("views", 0)
+                        likes = (content.metrics or {}).get("likes", 0)
+                        if views > 1000 or likes > 50:
+                            transcript = await self.transcript_service.get_transcript(
+                                content.content_id
+                            )
+                            if transcript:
+                                self.db.update_transcript(content.id, transcript)
+                                content.transcript = transcript
+                                logger.info(
+                                    f"AI分析前补充字幕: {content.content_id} "
+                                    f"({len(transcript)} chars)"
+                                )
+
                     result = await self.analyzer.analyze_content(
                         content=content.content or "",
                         source=content.source,
@@ -962,12 +1012,32 @@ class InfoHunter:
                     for c in contents[:30]
                     if c.content
                 ]
+                logger.info(f"日报 AI 分析: {len(items_for_analysis)} 条内容待分析")
                 if items_for_analysis:
                     result = await self.analyzer.analyze_batch(
                         items_for_analysis, focus="daily_newsletter"
                     )
                     if result["status"] == "success":
                         ai_summary = result["analysis"]
+                        if isinstance(ai_summary, dict):
+                            non_empty = {
+                                k: type(v).__name__
+                                for k, v in ai_summary.items()
+                                if v
+                            }
+                            logger.info(
+                                f"日报 AI 趋势分析成功, "
+                                f"fields={non_empty}"
+                            )
+                        else:
+                            logger.info(
+                                f"日报 AI 趋势分析成功, type={type(ai_summary).__name__}"
+                            )
+                    else:
+                        logger.warning(
+                            f"日报 AI 趋势分析失败: status={result['status']}, "
+                            f"error={result.get('error')}"
+                        )
 
             contents_data = [
                 {

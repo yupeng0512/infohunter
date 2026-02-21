@@ -160,6 +160,11 @@ class Settings(BaseSettings):
         default=20, description="每轮 AI 分析最大处理条数"
     )
 
+    # ===== 字幕提取配置 =====
+    transcript_batch_size: int = Field(
+        default=10, description="每批获取字幕的最大视频数"
+    )
+
     # ===== 过滤配置 =====
     min_quality_score: float = Field(
         default=0.3, description="最低质量评分阈值 (0-1)"

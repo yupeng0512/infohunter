@@ -30,5 +30,8 @@ loguru>=0.7.0
 # RSS parsing (for RSSHub fallback)
 feedparser>=6.0.0
 
+# YouTube transcript extraction (free, no API key needed)
+youtube-transcript-api>=1.0.0
+
 # MCP Server (optional, for AI assistant integration)
 mcp>=1.0.0

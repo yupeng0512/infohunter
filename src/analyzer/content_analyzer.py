@@ -176,20 +176,90 @@ class ContentAnalyzer:
             raw_content = response["content"]
             result["raw_content"] = raw_content
 
+            # 保存原始 Agent 输出用于调试
+            try:
+                debug_path = Path(__file__).parent.parent.parent / "logs" / "debug_raw.txt"
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                debug_path.write_text(raw_content, encoding="utf-8")
+            except Exception:
+                pass
+
             analysis = AGUIClient.extract_json(raw_content)
             if analysis:
                 result["status"] = "success"
                 result["analysis"] = analysis
+                logger.info("Batch extract_json succeeded on first attempt")
             else:
-                result["status"] = "success"
-                result["analysis"] = {"raw_response": raw_content}
+                logger.warning(
+                    f"Batch extract_json failed, raw_len={len(raw_content)}, "
+                    f"starts={repr(raw_content[:80])}, "
+                    f"ends={repr(raw_content[-50:])}"
+                )
+                cleaned = self._clean_ai_output(raw_content)
+                analysis = AGUIClient.extract_json(cleaned)
+                if analysis:
+                    result["status"] = "success"
+                    result["analysis"] = analysis
+                    logger.info("Batch extract_json succeeded after cleanup")
+                else:
+                    logger.warning(
+                        f"Batch extract_json still failed after cleanup, "
+                        f"cleaned_len={len(cleaned)}, "
+                        f"starts={repr(cleaned[:80])}"
+                    )
+                    result["status"] = "success"
+                    result["analysis"] = {"raw_response": raw_content}
 
         except Exception as e:
             result["status"] = "error"
             result["error"] = str(e)
-            logger.error(f"Batch analysis failed: {e}")
+            logger.error(f"Batch analysis failed: {e}", exc_info=True)
 
         return result
+
+    @staticmethod
+    def _clean_ai_output(text: str) -> str:
+        """清理 AI 输出中的干扰内容，尝试修复常见 JSON 格式问题"""
+        import re
+
+        text = re.sub(r'<thinking>[\s\S]*?</thinking>', '', text)
+        text = re.sub(r'```json\s*', '', text)
+        text = re.sub(r'```\s*', '', text)
+
+        brace_pos = text.find('{')
+        if brace_pos > 0:
+            text = text[brace_pos:]
+        last_brace = text.rfind('}')
+        if last_brace > 0:
+            text = text[:last_brace + 1]
+        text = text.strip()
+
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+
+        try:
+            json.loads(text)
+            return text
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            json.loads(text, strict=False)
+            return text
+        except json.JSONDecodeError:
+            pass
+
+        def _fix_json_value(match: re.Match) -> str:
+            value = match.group(0)
+            return value.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+
+        try:
+            text = re.sub(
+                r'(?<=: ")((?:[^"\\]|\\.)*)(?=")', _fix_json_value, text
+            )
+        except Exception as e:
+            logger.debug(f"JSON value fix regex failed: {e}")
+
+        return text
 
     def _build_content_prompt(
         self,

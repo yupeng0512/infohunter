@@ -278,7 +278,7 @@ class DatabaseManager:
                 .where(Content.ai_analyzed_at == None)
                 .order_by(
                     source_priority.asc(),
-                    Content.posted_at.desc().nulls_last(),
+                    Content.posted_at.desc(),
                     Content.created_at.desc(),
                 )
                 .limit(limit)
@@ -317,7 +317,7 @@ class DatabaseManager:
                 query = query.where(Content.notified == notified)
 
             query = query.order_by(
-                Content.quality_score.desc().nulls_last(),
+                Content.quality_score.desc(),
                 Content.posted_at.desc(),
             ).limit(limit)
 
@@ -340,7 +340,7 @@ class DatabaseManager:
                         Content.ai_analyzed_at >= since,
                     )
                 )
-                .order_by(Content.quality_score.desc().nulls_last())
+                .order_by(Content.quality_score.desc())
                 .limit(limit)
             ).scalars().all()
             return [self._detach(c, Content) for c in contents]
@@ -353,6 +353,16 @@ class DatabaseManager:
                 .where(Content.notified == True)
             ).scalar()
             return result
+
+    def update_transcript(self, content_id: int, transcript: str) -> None:
+        """回填字幕到已有记录"""
+        with self.get_session() as session:
+            session.execute(
+                Content.__table__.update()
+                .where(Content.id == content_id)
+                .values(transcript=transcript)
+            )
+            session.commit()
 
     def update_ai_analysis(
         self,

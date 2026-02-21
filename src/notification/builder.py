@@ -204,25 +204,9 @@ class MessageBuilder:
         if ai_summary:
             lines.append("---")
             lines.append("🤖 **AI 趋势分析**")
-            if isinstance(ai_summary, dict):
-                if ai_summary.get("overall_summary"):
-                    lines.append(ai_summary["overall_summary"])
-                if ai_summary.get("hot_topics"):
-                    lines.append("")
-                    lines.append("🔥 **热门话题**")
-                    for topic in ai_summary["hot_topics"][:5]:
-                        if isinstance(topic, dict):
-                            lines.append(f"• {topic.get('topic', topic)}")
-                        else:
-                            lines.append(f"• {topic}")
-                if ai_summary.get("key_insights"):
-                    lines.append("")
-                    lines.append("💡 **关键洞察**")
-                    for insight in ai_summary["key_insights"][:5]:
-                        if isinstance(insight, dict):
-                            lines.append(f"• {insight.get('insight', str(insight))}")
-                        else:
-                            lines.append(f"• {insight}")
+            rendered = _render_ai_summary(ai_summary)
+            if rendered:
+                lines.append(rendered)
             lines.append("")
 
         # Top 内容列表
@@ -516,6 +500,81 @@ class MessageBuilder:
 
         lines.append(f"⏰ {now.strftime('%Y-%m-%d %H:%M')}")
         return "\n".join(lines)
+
+
+def _render_ai_summary(ai_summary) -> str:
+    """渲染 AI 趋势分析为 Markdown 文本
+
+    兼容多种 ai_summary 格式:
+      - dict with overall_summary / hot_topics / key_insights (trend prompt)
+      - dict with raw_response (extract_json fallback)
+      - str (plain text)
+    """
+    if isinstance(ai_summary, str):
+        return ai_summary
+
+    if not isinstance(ai_summary, dict):
+        return str(ai_summary) if ai_summary else ""
+
+    # 如果是 extract_json 回退的 raw_response
+    if "raw_response" in ai_summary and len(ai_summary) == 1:
+        raw = ai_summary["raw_response"]
+        return raw[:2000] if isinstance(raw, str) else str(raw)[:2000]
+
+    parts: list[str] = []
+
+    if ai_summary.get("overall_summary"):
+        parts.append(ai_summary["overall_summary"])
+
+    if ai_summary.get("hot_topics"):
+        parts.append("")
+        parts.append("🔥 **热门话题**")
+        for topic in ai_summary["hot_topics"][:5]:
+            if isinstance(topic, dict):
+                name = topic.get("topic", str(topic))
+                heat = topic.get("heat", 0)
+                heat_bar = "🟥" * min(int(heat), 10) if heat else ""
+                desc = topic.get("description", "")
+                parts.append(f"• **{name}** {heat_bar}")
+                if desc:
+                    parts.append(f"  {desc}")
+            else:
+                parts.append(f"• {topic}")
+
+    if ai_summary.get("key_insights"):
+        parts.append("")
+        parts.append("💡 **关键洞察**")
+        for insight in ai_summary["key_insights"][:5]:
+            if isinstance(insight, dict):
+                text = insight.get("insight", str(insight))
+                parts.append(f"• {text}")
+            else:
+                parts.append(f"• {insight}")
+
+    if ai_summary.get("emerging_signals"):
+        parts.append("")
+        parts.append("📡 **新兴信号**")
+        for sig in ai_summary["emerging_signals"][:3]:
+            if isinstance(sig, dict):
+                parts.append(f"• {sig.get('signal', str(sig))}")
+            else:
+                parts.append(f"• {sig}")
+
+    rec = ai_summary.get("recommendation")
+    if rec and isinstance(rec, dict):
+        if rec.get("immediate_action"):
+            parts.append("")
+            parts.append(f"🎯 **行动建议**: {rec['immediate_action']}")
+        if rec.get("watch_list"):
+            parts.append(f"👀 **关注清单**: {', '.join(rec['watch_list'][:5])}")
+
+    if not parts:
+        # 兜底: 如果所有已知字段都为空，直接渲染所有有值的字段
+        for k, v in ai_summary.items():
+            if v and k != "raw_response":
+                parts.append(f"**{k}**: {str(v)[:300]}")
+
+    return "\n".join(parts)
 
 
 def _format_number(n: int) -> str:
