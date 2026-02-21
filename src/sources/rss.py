@@ -79,7 +79,9 @@ class RSSClient(SourceClient):
     ) -> list[dict[str, Any]]:
         """通用 RSS 抓取 + 解析"""
         try:
-            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=20, follow_redirects=True, verify=False
+            ) as client:
                 response = await client.get(url)
                 if response.status_code != 200:
                     logger.warning(f"RSS fetch failed: {response.status_code} for {url}")

@@ -6,6 +6,7 @@ InfoHunter 多源数据存储管理器。
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 from sqlalchemy import create_engine, func, select, and_
@@ -13,6 +14,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import settings
 from .models import Base, Content, CreditUsage, FetchLog, Subscription, SystemConfig
+
+_LOCAL_TZ = ZoneInfo(settings.timezone)
 
 
 class DatabaseManager:
@@ -754,9 +757,18 @@ class DatabaseManager:
 
     @staticmethod
     def _clean_content_data(data: dict) -> dict:
-        """过滤 Content 模型不支持的字段，防止 SQLAlchemy TypeError"""
+        """过滤 Content 模型不支持的字段，防止 SQLAlchemy TypeError。
+        同时将带时区的 posted_at 统一转为本地时区 naive datetime，
+        确保与 datetime.now() 可比。
+        """
         valid_columns = {c.name for c in Content.__table__.columns}
-        return {k: v for k, v in data.items() if k in valid_columns}
+        clean = {k: v for k, v in data.items() if k in valid_columns}
+
+        posted = clean.get("posted_at")
+        if isinstance(posted, datetime) and posted.tzinfo is not None:
+            clean["posted_at"] = posted.astimezone(_LOCAL_TZ).replace(tzinfo=None)
+
+        return clean
 
     def _detach(self, obj, model_class):
         """分离 ORM 对象，使其可在会话外使用"""
