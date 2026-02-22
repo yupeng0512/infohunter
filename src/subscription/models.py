@@ -71,7 +71,7 @@ class SubscriptionResponse(BaseModel):
 
 
 class ContentResponse(BaseModel):
-    """内容响应"""
+    """内容响应（完整）"""
 
     id: int
     content_id: str
@@ -89,6 +89,26 @@ class ContentResponse(BaseModel):
     relevance_score: Optional[float] = None
     quality_score: Optional[float] = None
     notified: bool = False
+    posted_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ContentListItem(BaseModel):
+    """内容列表项（轻量，排除大字段以提升性能）"""
+
+    id: int
+    content_id: str
+    source: str
+    author: Optional[str] = None
+    author_id: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    url: Optional[str] = None
+    metrics: Optional[dict] = None
+    ai_analysis: Optional[dict] = None
+    quality_score: Optional[float] = None
     posted_at: Optional[datetime] = None
     created_at: datetime
 

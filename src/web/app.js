@@ -86,49 +86,124 @@ async function loadSubscriptions() {
     } catch { el.innerHTML = '<div class="empty-state"><p>加载失败</p></div>'; }
 }
 
-/* ===== Contents ===== */
+/* ===== Contents (paginated + tab filter) ===== */
+let _contentPage = 1;
+let _contentPageSize = 20;
+let _contentSource = '';
+
+function filterContent(btn) {
+    document.querySelectorAll('.content-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    _contentSource = btn.dataset.source;
+    _contentPage = 1;
+    loadContents();
+}
+
+function changePageSize() {
+    _contentPageSize = parseInt(document.getElementById('content-page-size').value);
+    _contentPage = 1;
+    loadContents();
+}
+
+function goContentPage(p) {
+    _contentPage = p;
+    loadContents();
+}
+
+function _renderContentRow(c) {
+    const m = c.metrics || {};
+    const metrics = [];
+    if (m.views) metrics.push(`<span class="metric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${fmtN(m.views)}</span>`);
+    if (m.likes) metrics.push(`<span class="metric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>${fmtN(m.likes)}</span>`);
+    if (m.retweets) metrics.push(`<span class="metric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>${m.retweets}</span>`);
+
+    const aiTags = [];
+    if (c.ai_analysis) {
+        const a = c.ai_analysis;
+        if (a.importance) aiTags.push(`<span class="ai-badge">${a.importance}/10</span>`);
+        if (a.sentiment) aiTags.push(`<span class="ai-badge">${a.sentiment}</span>`);
+    }
+
+    return `<div class="content-row">
+        <div class="content-title">
+            <span class="tag tag-${c.source}" style="flex-shrink:0">${c.source}</span>
+            <a href="${c.url||'#'}" target="_blank" rel="noopener">${esc(c.title || (c.content||'').substring(0,120))}</a>
+        </div>
+        ${c.content ? `<div class="content-text">${esc(c.content.substring(0,280))}</div>` : ''}
+        <div class="content-footer">
+            <span>@${c.author_id || c.author || '—'}</span>
+            ${metrics.join('')}
+            ${c.quality_score ? `<span>质量 ${(c.quality_score*100).toFixed(0)}%</span>` : ''}
+            ${aiTags.join('')}
+            ${c.posted_at ? `<span>${new Date(c.posted_at).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}
+        </div>
+    </div>`;
+}
+
+function _renderPagination(page, pageSize, total) {
+    const totalPages = Math.ceil(total / pageSize);
+    if (totalPages <= 1) return '';
+
+    const maxVisible = 7;
+    let pages = [];
+    if (totalPages <= maxVisible) {
+        for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+        pages.push(1);
+        let start = Math.max(2, page - 2);
+        let end = Math.min(totalPages - 1, page + 2);
+        if (page <= 3) end = Math.min(5, totalPages - 1);
+        if (page >= totalPages - 2) start = Math.max(totalPages - 4, 2);
+        if (start > 2) pages.push('...');
+        for (let i = start; i <= end; i++) pages.push(i);
+        if (end < totalPages - 1) pages.push('...');
+        pages.push(totalPages);
+    }
+
+    const from = (page - 1) * pageSize + 1;
+    const to = Math.min(page * pageSize, total);
+
+    let html = `<div class="pagination-info">显示 ${from}-${to} / 共 ${total} 条</div><div class="pagination-btns">`;
+    html += `<button class="pg-btn" ${page===1?'disabled':''} onclick="goContentPage(${page-1})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>`;
+    for (const p of pages) {
+        if (p === '...') {
+            html += `<span class="pg-ellipsis">…</span>`;
+        } else {
+            html += `<button class="pg-btn${p===page?' active':''}" onclick="goContentPage(${p})">${p}</button>`;
+        }
+    }
+    html += `<button class="pg-btn" ${page===totalPages?'disabled':''} onclick="goContentPage(${page+1})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>`;
+    html += '</div>';
+    return html;
+}
+
 async function loadContents() {
     const el = document.getElementById('content-list');
+    const pgEl = document.getElementById('content-pagination');
+    const badge = document.getElementById('content-total-badge');
     el.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
-    const src = document.getElementById('content-source').value;
-    const p = new URLSearchParams({limit:'100'});
-    if (src) p.set('source', src);
+    pgEl.innerHTML = '';
+
+    const p = new URLSearchParams({page: _contentPage, page_size: _contentPageSize});
+    if (_contentSource) p.set('source', _contentSource);
     try {
         const r = await fetch(`${API}/api/contents?${p}`);
-        const items = await r.json();
+        const data = await r.json();
+        const items = data.items || [];
+        const total = data.total || 0;
+
+        badge.textContent = total > 0 ? total : '';
+
         if (!items.length) {
             el.innerHTML = '<div class="empty-state"><p>暂无内容</p></div>';
             return;
         }
-        el.innerHTML = items.map(c => {
-            const m = c.metrics || {};
-            const metrics = [];
-            if (m.views) metrics.push(`<span class="metric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${fmtN(m.views)}</span>`);
-            if (m.likes) metrics.push(`<span class="metric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>${fmtN(m.likes)}</span>`);
-            if (m.retweets) metrics.push(`<span class="metric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>${m.retweets}</span>`);
-
-            const aiTags = [];
-            if (c.ai_analysis) {
-                const a = c.ai_analysis;
-                if (a.importance) aiTags.push(`<span class="ai-badge">${a.importance}/10</span>`);
-                if (a.sentiment) aiTags.push(`<span class="ai-badge">${a.sentiment}</span>`);
-            }
-
-            return `<div class="content-row">
-                <div class="content-title">
-                    <span class="tag tag-${c.source}" style="flex-shrink:0">${c.source}</span>
-                    <a href="${c.url||'#'}" target="_blank" rel="noopener">${esc(c.title || (c.content||'').substring(0,120))}</a>
-                </div>
-                ${c.content ? `<div class="content-text">${esc(c.content.substring(0,280))}</div>` : ''}
-                <div class="content-footer">
-                    <span>@${c.author_id || c.author || '—'}</span>
-                    ${metrics.join('')}
-                    ${c.quality_score ? `<span>质量 ${(c.quality_score*100).toFixed(0)}%</span>` : ''}
-                    ${aiTags.join('')}
-                    ${c.posted_at ? `<span>${new Date(c.posted_at).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}
-                </div>
-            </div>`;
-        }).join('');
+        el.innerHTML = items.map(_renderContentRow).join('');
+        pgEl.innerHTML = _renderPagination(data.page, data.page_size, total);
     } catch { el.innerHTML = '<div class="empty-state"><p>加载失败</p></div>'; }
 }
 

@@ -209,6 +209,7 @@ class Content(Base):
         Index("idx_content_notified", "notified"),
         Index("idx_content_ai_analyzed", "ai_analyzed_at"),
         Index("idx_content_quality", "quality_score"),
+        Index("idx_content_source_posted", "source", "posted_at"),
     )
 
     def __repr__(self) -> str:

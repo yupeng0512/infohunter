@@ -456,6 +456,43 @@ class DatabaseManager:
             contents = session.execute(query).scalars().all()
             return [self._detach(c, Content) for c in contents]
 
+    def get_contents_paginated(
+        self,
+        source: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[Content], int]:
+        """分页获取内容列表，返回 (items, total_count)
+
+        按 posted_at 降序排列。使用 deferred 加载排除大字段以减少 I/O。
+        """
+        from sqlalchemy.orm import defer
+
+        with self.get_session() as session:
+            where_clause = Content.source == source if source else None
+
+            count_q = select(func.count(Content.id))
+            if where_clause is not None:
+                count_q = count_q.where(where_clause)
+            total = session.execute(count_q).scalar() or 0
+
+            query = (
+                select(Content)
+                .options(
+                    defer(Content.raw_data),
+                    defer(Content.transcript),
+                    defer(Content.media_attachments),
+                )
+                .order_by(Content.posted_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+            if where_clause is not None:
+                query = query.where(where_clause)
+
+            rows = session.execute(query).scalars().all()
+            return [self._detach(c, Content, skip_deferred=True) for c in rows], total
+
     def content_exists(self, content_id: str, source: str) -> bool:
         """检查内容是否已存在"""
         with self.get_session() as session:
@@ -780,11 +817,20 @@ class DatabaseManager:
 
         return clean
 
-    def _detach(self, obj, model_class):
+    def _detach(self, obj, model_class, skip_deferred=False):
         """分离 ORM 对象，使其可在会话外使用"""
+        from sqlalchemy import inspect as sa_inspect
+
         data = {}
-        for column in model_class.__table__.columns:
-            data[column.name] = getattr(obj, column.name)
+        if skip_deferred:
+            deferred_keys = sa_inspect(obj).attrs.keys()
+            unloaded = sa_inspect(obj).unloaded
+            for column in model_class.__table__.columns:
+                if column.name not in unloaded:
+                    data[column.name] = getattr(obj, column.name)
+        else:
+            for column in model_class.__table__.columns:
+                data[column.name] = getattr(obj, column.name)
         detached = model_class(**data)
         return detached
 

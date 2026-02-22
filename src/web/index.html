@@ -164,19 +164,36 @@
                     <div class="panel-title">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
                         内容浏览
+                        <span class="content-total-badge" id="content-total-badge"></span>
                     </div>
-                    <div class="filter-bar">
-                        <select class="filter-select" id="content-source" onchange="loadContents()">
-                            <option value="">全部来源</option>
-                            <option value="twitter">Twitter</option>
-                            <option value="youtube">YouTube</option>
-                            <option value="blog">Blog / RSS</option>
+                    <div class="content-page-size-bar">
+                        <label class="page-size-label">每页</label>
+                        <select class="filter-select" id="content-page-size" onchange="changePageSize()">
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
                         </select>
                     </div>
+                </div>
+                <div class="content-filter-tabs" id="content-filters">
+                    <button class="content-tab active" data-source="" onclick="filterContent(this)">全部</button>
+                    <button class="content-tab" data-source="twitter" onclick="filterContent(this)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg>
+                        Twitter
+                    </button>
+                    <button class="content-tab" data-source="youtube" onclick="filterContent(this)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                        YouTube
+                    </button>
+                    <button class="content-tab" data-source="blog" onclick="filterContent(this)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                        Blog / RSS
+                    </button>
                 </div>
                 <div id="content-list">
                     <div class="loading-state"><div class="spinner"></div><div style="font-size:13px;color:var(--text-dim)">加载中</div></div>
                 </div>
+                <div class="pagination" id="content-pagination"></div>
             </div>
         </div>
 

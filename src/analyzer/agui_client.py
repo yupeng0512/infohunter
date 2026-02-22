@@ -186,6 +186,61 @@ class AGUIClient:
         return result
 
     @staticmethod
+    def _normalize_quotes(text: str) -> str:
+        """将中日韩引号替换为 JSON 安全字符（单引号），避免破坏 JSON 结构"""
+        return (
+            text
+            .replace('\u300c', "'").replace('\u300d', "'")   # 「」
+            .replace('\u201c', "'").replace('\u201d', "'")   # ""
+            .replace('\u2018', "'").replace('\u2019', "'")   # ''
+        )
+
+    @staticmethod
+    def _fix_unescaped_quotes(text: str) -> str:
+        """修复 JSON 字符串值内部未转义的双引号
+
+        AI 生成的 JSON 中常出现类似 "...等待"成熟方案"..." 这样的内容。
+        通过字符级状态机判断哪些双引号属于 JSON 结构，哪些在字符串值内需要转义。
+        """
+        result = []
+        in_string = False
+        i = 0
+        n = len(text)
+        while i < n:
+            c = text[i]
+            if not in_string:
+                result.append(c)
+                if c == '"':
+                    in_string = True
+            else:
+                if c == '\\' and i + 1 < n:
+                    result.append(c)
+                    result.append(text[i + 1])
+                    i += 2
+                    continue
+                if c == '"':
+                    rest = text[i + 1:].lstrip()
+                    if rest and rest[0] in ',}]:':
+                        result.append(c)
+                        in_string = False
+                    elif not rest or rest[0] == '\n':
+                        # End of line or end of text — likely end of string
+                        j = i + 1
+                        while j < n and text[j] in ' \t\r\n':
+                            j += 1
+                        if j >= n or text[j] in '"}]':
+                            result.append(c)
+                            in_string = False
+                        else:
+                            result.append('\\"')
+                    else:
+                        result.append('\\"')
+                else:
+                    result.append(c)
+            i += 1
+        return ''.join(result)
+
+    @staticmethod
     def extract_json(text: str) -> Optional[dict]:
         """从文本中提取 JSON，多层容错"""
         if not text:
@@ -220,11 +275,11 @@ class AGUIClient:
             except json.JSONDecodeError:
                 continue
 
-        # 4. 贪婪提取最外层 {}
+        # 4. 贪婪提取最外层 {} + 中文引号归一化
         brace_start = text.find('{')
         brace_end = text.rfind('}')
         if brace_start >= 0 and brace_end > brace_start:
-            candidate = text[brace_start:brace_end + 1]
+            candidate = AGUIClient._normalize_quotes(text[brace_start:brace_end + 1])
             try:
                 result = json.loads(candidate, strict=False)
                 if isinstance(result, dict):
@@ -237,7 +292,7 @@ class AGUIClient:
 
         # 5. 清理控制字符 + 修复尾部逗号后重试
         if brace_start >= 0 and brace_end > brace_start:
-            candidate = text[brace_start:brace_end + 1]
+            candidate = AGUIClient._normalize_quotes(text[brace_start:brace_end + 1])
             candidate = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', candidate)
             candidate = re.sub(r',\s*([\]}])', r'\1', candidate)
             try:
@@ -246,6 +301,20 @@ class AGUIClient:
                     return result
             except json.JSONDecodeError:
                 pass
+
+        # 6. 终极回退：修复字符串值中未转义的双引号
+        if brace_start >= 0 and brace_end > brace_start:
+            candidate = AGUIClient._normalize_quotes(text[brace_start:brace_end + 1])
+            candidate = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', candidate)
+            candidate = re.sub(r',\s*([\]}])', r'\1', candidate)
+            candidate = AGUIClient._fix_unescaped_quotes(candidate)
+            try:
+                result = json.loads(candidate, strict=False)
+                if isinstance(result, dict):
+                    logger.info("extract_json succeeded via unescaped-quote fix")
+                    return result
+            except json.JSONDecodeError as e:
+                logger.debug(f"extract_json final fallback failed: {e}")
 
         return None
 

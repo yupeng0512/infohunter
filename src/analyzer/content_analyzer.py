@@ -226,6 +226,14 @@ class ContentAnalyzer:
         text = re.sub(r'```json\s*', '', text)
         text = re.sub(r'```\s*', '', text)
 
+        # 将中日韩引号替换为单引号，避免破坏 JSON 结构
+        text = (
+            text
+            .replace('\u300c', "'").replace('\u300d', "'")
+            .replace('\u201c', "'").replace('\u201d', "'")
+            .replace('\u2018', "'").replace('\u2019', "'")
+        )
+
         brace_pos = text.find('{')
         if brace_pos > 0:
             text = text[brace_pos:]

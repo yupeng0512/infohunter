@@ -20,6 +20,7 @@ from src.storage.database import get_db_manager
 from src.subscription.manager import SubscriptionManager
 from pydantic import BaseModel, Field
 from src.subscription.models import (
+    ContentListItem,
     ContentResponse,
     SubscriptionCreate,
     SubscriptionResponse,
@@ -266,21 +267,40 @@ async def import_opml(
 # ===== 内容查询 =====
 
 
-@app.get("/api/contents", response_model=list[ContentResponse])
+class PaginatedContents(BaseModel):
+    items: list[ContentListItem]
+    total: int
+    page: int
+    page_size: int
+
+
+@app.get("/api/contents", response_model=PaginatedContents)
 async def list_contents(
     subscription_id: Optional[int] = Query(None),
     source: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=500),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
 ):
-    """查询内容"""
+    """分页查询内容（使用轻量级模型，排除 transcript/raw_data）"""
     db = get_db()
     if subscription_id:
-        contents = db.get_contents_by_subscription(subscription_id, limit=limit)
-    else:
-        contents = db.get_contents_for_report(
-            since=datetime(2020, 1, 1), source=source, limit=limit
+        contents = db.get_contents_by_subscription(subscription_id, limit=page_size)
+        return PaginatedContents(
+            items=[ContentListItem.model_validate(c) for c in contents],
+            total=len(contents),
+            page=1,
+            page_size=page_size,
         )
-    return [ContentResponse.model_validate(c) for c in contents]
+
+    contents, total = db.get_contents_paginated(
+        source=source, offset=(page - 1) * page_size, limit=page_size
+    )
+    return PaginatedContents(
+        items=[ContentListItem.model_validate(c) for c in contents],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @app.get("/api/contents/unanalyzed", response_model=list[ContentResponse])
