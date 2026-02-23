@@ -902,8 +902,27 @@ class InfoHunter:
             else:
                 logger.error("简报推送失败")
 
+            await self._push_to_app_users(contents)
+
         except Exception as e:
             logger.error(f"推送任务失败: {e}")
+
+    async def _push_to_app_users(self, contents: list) -> None:
+        """内容推送到 App 用户（通过 Expo Push Service）"""
+        try:
+            from src.notification.push_service import PushService
+
+            push_svc = PushService(self.db)
+            active_tokens = push_svc.get_active_tokens()
+            if not active_tokens:
+                return
+
+            count = len(contents)
+            result = await push_svc.push_daily_digest(user_id=None, count=count)
+            logger.info(f"App 推送: {result}")
+
+        except Exception as e:
+            logger.warning(f"App 推送失败 (不影响主流程): {e}")
 
     # ========== 阶段二：独立 AI 分析定时任务 ==========
 

@@ -142,20 +142,26 @@ def get_push_service():
     return _push_service
 
 
+class DeviceRegisterRequest(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=255)
+    platform: str = Field(..., pattern="^(ios|android)$")
+    push_token: str = Field(..., min_length=1)
+    app_version: Optional[str] = None
+
+
 @app.post("/api/devices/register")
 async def register_device(
-    device_id: str = Query(...),
-    platform: str = Query(..., pattern="^(ios|android)$"),
-    push_token: str = Query(...),
-    app_version: Optional[str] = Query(None),
+    req: DeviceRegisterRequest,
+    user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """注册设备推送 Token"""
+    """注册设备推送 Token（登录用户自动关联 user_id）"""
     from src.notification.push_service import DeviceRegistration
     reg = DeviceRegistration(
-        device_id=device_id,
-        platform=platform,
-        push_token=push_token,
-        app_version=app_version,
+        device_id=req.device_id,
+        platform=req.platform,
+        push_token=req.push_token,
+        app_version=req.app_version,
+        user_id=user.id if user else None,
     )
     result = get_push_service().register_device(reg)
     return result
@@ -169,8 +175,8 @@ async def unregister_device(device_id: str):
 
 
 @app.get("/api/devices")
-async def list_devices():
-    """列出活跃设备"""
+async def list_devices(user: User = Depends(require_admin)):
+    """列出活跃设备（仅管理员）"""
     tokens = get_push_service().get_active_tokens()
     return {"devices": tokens, "total": len(tokens)}
 
@@ -319,7 +325,11 @@ async def get_user_feed(
     unread_only: bool = Query(False),
     user: User = Depends(get_current_user),
 ):
-    """获取用户个人 Feed"""
+    """获取用户个人 Feed
+
+    - global 模式：返回全局订阅产生的所有内容
+    - custom 模式：返回用户个人订阅内容 + 全局订阅内容（融合）
+    """
     db = get_db()
 
     if user.mode == "global":
@@ -335,7 +345,7 @@ async def get_user_feed(
             "mode": "global",
         }
     else:
-        items, total = db.get_user_feed(
+        items, total = db.get_custom_mode_feed(
             user_id=user.id,
             unread_only=unread_only,
             page=page,
@@ -362,13 +372,19 @@ async def mark_feed_read(content_id: int, user: User = Depends(get_current_user)
 
 @app.get("/api/user/subscriptions")
 async def list_user_subscriptions(user: User = Depends(get_current_user)):
-    """获取用户个人订阅列表"""
+    """获取用户的订阅列表
+
+    - global 模式：仅返回全局订阅
+    - custom 模式：返回全局订阅 + 用户个人订阅，通过 scope 区分
+    """
     db = get_db()
-    subs = db.list_subscriptions(status="active")
+    all_subs = db.list_subscriptions(status="active")
+
     if user.mode == "custom":
-        subs = [s for s in subs if s.scope == "user" and s.owner_id == user.id]
+        subs = [s for s in all_subs if s.scope == "global" or (s.scope == "user" and s.owner_id == user.id)]
     else:
-        subs = [s for s in subs if s.scope == "global"]
+        subs = [s for s in all_subs if s.scope == "global"]
+
     return [
         {
             "id": s.id,
@@ -377,7 +393,9 @@ async def list_user_subscriptions(user: User = Depends(get_current_user)):
             "type": s.type,
             "target": s.target,
             "status": s.status,
-            "scope": s.scope,
+            "scope": getattr(s, "scope", "global"),
+            "owner_id": getattr(s, "owner_id", None),
+            "is_mine": s.scope == "user" and s.owner_id == user.id,
             "last_fetched_at": str(s.last_fetched_at) if s.last_fetched_at else None,
         }
         for s in subs
@@ -389,11 +407,52 @@ async def create_user_subscription(
     req: UserSubscriptionCreate,
     user: User = Depends(get_current_user),
 ):
-    """创建用户个人订阅 (仅 custom 模式)"""
+    """创建用户个人订阅 (仅 custom 模式)
+
+    去重复用策略：
+    - 如果全局订阅中已存在同一目标，直接复用，不创建重复的采集任务
+    - 如果该用户已有同一目标的个人订阅，返回已有订阅
+    - 否则创建新的用户级订阅
+    """
     if user.mode != "custom":
         raise HTTPException(status_code=400, detail="请先切换到自定义模式")
 
     db = get_db()
+
+    existing_global = db.find_existing_subscription_for_target(
+        source=req.source, target=req.target, scope="global"
+    )
+    if existing_global:
+        return {
+            "status": "reused",
+            "message": "该目标已在全局订阅中，内容将自动出现在你的 Feed",
+            "subscription": {
+                "id": existing_global.id,
+                "name": existing_global.name,
+                "source": existing_global.source,
+                "type": existing_global.type,
+                "target": existing_global.target,
+                "scope": "global",
+            },
+        }
+
+    existing_user = db.find_existing_subscription_for_target(
+        source=req.source, target=req.target, scope="user", owner_id=user.id,
+    )
+    if existing_user:
+        return {
+            "status": "exists",
+            "message": "你已订阅该目标",
+            "subscription": {
+                "id": existing_user.id,
+                "name": existing_user.name,
+                "source": existing_user.source,
+                "type": existing_user.type,
+                "target": existing_user.target,
+                "scope": "user",
+            },
+        }
+
     sub = db.create_subscription({
         "name": req.name,
         "source": req.source,
@@ -443,6 +502,29 @@ def _content_to_dict(c) -> dict:
         "posted_at": str(c.posted_at) if c.posted_at else None,
         "created_at": str(c.created_at),
     }
+
+
+# ===== 推送管理 =====
+
+
+class PushTestRequest(BaseModel):
+    title: str = Field(default="InfoHunter 测试推送")
+    body: str = Field(default="这是一条测试推送通知")
+
+
+@app.post("/api/push/test")
+async def test_push(
+    req: PushTestRequest,
+    user: User = Depends(get_current_user),
+):
+    """发送测试推送通知到当前用户的设备"""
+    result = await get_push_service().send_push(
+        title=req.title,
+        body=req.body,
+        data={"type": "test"},
+        user_id=user.id,
+    )
+    return result
 
 
 # ===== 健康检查 =====

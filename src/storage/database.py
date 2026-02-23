@@ -916,7 +916,7 @@ class DatabaseManager:
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Content], int]:
-        """获取用户 Feed，返回 (内容列表, 总数)"""
+        """获取用户 Feed（仅 UserContentFeed 中的记录），返回 (内容列表, 总数)"""
         with self.get_session() as session:
             base_query = (
                 select(Content)
@@ -938,6 +938,83 @@ class DatabaseManager:
             ).scalars().all()
 
             return [self._detach(c, Content) for c in items], total
+
+    def get_custom_mode_feed(
+        self,
+        user_id: int,
+        unread_only: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[Content], int]:
+        """Custom 模式 Feed：用户个人订阅内容 + 全局订阅内容（融合去重）
+
+        策略：查询所有来自 global scope 订阅的内容 UNION 来自该用户 scope=user 订阅的内容。
+        """
+        from sqlalchemy.orm import defer
+
+        with self.get_session() as session:
+            user_sub_ids = [
+                r[0] for r in session.execute(
+                    select(Subscription.id).where(
+                        Subscription.status == "active",
+                        Subscription.scope == "user",
+                        Subscription.owner_id == user_id,
+                    )
+                ).fetchall()
+            ]
+
+            global_sub_ids = [
+                r[0] for r in session.execute(
+                    select(Subscription.id).where(
+                        Subscription.status == "active",
+                        Subscription.scope == "global",
+                    )
+                ).fetchall()
+            ]
+
+            all_sub_ids = list(set(user_sub_ids + global_sub_ids))
+            if not all_sub_ids:
+                return [], 0
+
+            base = (
+                select(Content)
+                .where(Content.subscription_id.in_(all_sub_ids))
+            )
+
+            total = session.execute(
+                select(func.count()).select_from(base.subquery())
+            ).scalar() or 0
+
+            items = session.execute(
+                base
+                .options(defer(Content.raw_data), defer(Content.transcript))
+                .order_by(Content.posted_at.desc().nullslast(), Content.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).scalars().all()
+
+            return [self._detach(c, Content, skip_deferred=True) for c in items], total
+
+    def find_existing_subscription_for_target(
+        self, source: str, target: str, scope: str = "global", owner_id: Optional[int] = None,
+    ) -> Optional[Subscription]:
+        """查找已存在的同目标订阅（用于去重复用）
+
+        当 scope='user' 时必须传 owner_id 以定位特定用户的订阅。
+        """
+        with self.get_session() as session:
+            query = select(Subscription).where(
+                Subscription.source == source,
+                Subscription.target == target,
+                Subscription.scope == scope,
+                Subscription.status == "active",
+            )
+            if owner_id is not None:
+                query = query.where(Subscription.owner_id == owner_id)
+            sub = session.execute(query).scalars().first()
+            if sub:
+                return self._detach(sub, Subscription)
+            return None
 
     def _detach(self, obj, model_class, skip_deferred=False):
         """分离 ORM 对象，使其可在会话外使用"""

@@ -37,5 +37,8 @@ feedparser>=6.0.0
 # YouTube transcript extraction (free, no API key needed)
 youtube-transcript-api>=1.0.0
 
+# Push notifications (Expo Push Service)
+exponent_server_sdk>=2.1.0
+
 # MCP Server (optional, for AI assistant integration)
 mcp>=1.0.0
