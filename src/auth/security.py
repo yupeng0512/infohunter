@@ -3,13 +3,11 @@
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 import jwt
 from loguru import logger
-from passlib.context import CryptContext
 
 from src.config import settings
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 _jwt_secret: str = settings.jwt_secret_key
 if not _jwt_secret:
@@ -21,11 +19,11 @@ if not _jwt_secret:
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
 def create_access_token(user_id: int, role: str) -> str:

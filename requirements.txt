@@ -23,7 +23,7 @@ pydantic-settings>=2.0.0
 
 # Authentication
 PyJWT[crypto]>=2.8.0
-passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.0
 
 # Retry logic
 tenacity>=8.2.0

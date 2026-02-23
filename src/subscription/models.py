@@ -63,6 +63,8 @@ class SubscriptionResponse(BaseModel):
     ai_analysis_enabled: bool
     notification_enabled: bool
     status: str
+    scope: str = "global"
+    owner_id: Optional[int] = None
     last_fetched_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
