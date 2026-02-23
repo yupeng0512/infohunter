@@ -9,14 +9,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+import jwt
+
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from src.config import settings
 from src.storage.database import get_db_manager
+from src.storage.models import User
+from src.auth.deps import get_current_user, get_current_user_optional, require_admin
 from src.subscription.manager import SubscriptionManager
 from pydantic import BaseModel, Field
 from src.subscription.models import (
@@ -82,7 +87,7 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -122,6 +127,322 @@ def get_sub_mgr():
 async def index():
     """Web 管理面板"""
     return FileResponse(WEB_DIR / "index.html")
+
+
+# ===== 设备注册（App 推送） =====
+
+_push_service = None
+
+
+def get_push_service():
+    global _push_service
+    if _push_service is None:
+        from src.notification.push_service import PushService
+        _push_service = PushService(get_db())
+    return _push_service
+
+
+@app.post("/api/devices/register")
+async def register_device(
+    device_id: str = Query(...),
+    platform: str = Query(..., pattern="^(ios|android)$"),
+    push_token: str = Query(...),
+    app_version: Optional[str] = Query(None),
+):
+    """注册设备推送 Token"""
+    from src.notification.push_service import DeviceRegistration
+    reg = DeviceRegistration(
+        device_id=device_id,
+        platform=platform,
+        push_token=push_token,
+        app_version=app_version,
+    )
+    result = get_push_service().register_device(reg)
+    return result
+
+
+@app.delete("/api/devices/{device_id}")
+async def unregister_device(device_id: str):
+    """注销设备"""
+    result = get_push_service().unregister_device(device_id)
+    return result
+
+
+@app.get("/api/devices")
+async def list_devices():
+    """列出活跃设备"""
+    tokens = get_push_service().get_active_tokens()
+    return {"devices": tokens, "total": len(tokens)}
+
+
+# ===== 认证端点 =====
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=2, max_length=64, pattern=r'^[a-zA-Z0-9_\-]+$')
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+class UserInfo(BaseModel):
+    id: int
+    username: str
+    role: str
+    mode: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user: UserInfo
+
+
+class UserModeRequest(BaseModel):
+    mode: str = Field(..., pattern="^(global|custom)$")
+
+
+class UserSubscriptionCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    source: str = Field(..., pattern="^(twitter|youtube|blog)$")
+    type: str = Field(..., pattern="^(keyword|author|topic|feed)$")
+    target: str = Field(..., min_length=1, max_length=512)
+
+
+@app.post("/api/auth/register")
+async def auth_register(req: RegisterRequest):
+    """用户注册"""
+    from src.auth.security import hash_password, create_access_token, create_refresh_token
+
+    db = get_db()
+    existing = db.get_user_by_username(req.username)
+    if existing:
+        raise HTTPException(status_code=400, detail="用户名已存在")
+
+    user = db.create_user(
+        username=req.username,
+        password_hash=hash_password(req.password),
+    )
+
+    return TokenResponse(
+        access_token=create_access_token(user.id, user.role),
+        refresh_token=create_refresh_token(user.id),
+        user={
+            "id": user.id,
+            "username": user.username,
+            "role": user.role,
+            "mode": user.mode,
+        },
+    )
+
+
+@app.post("/api/auth/login")
+async def auth_login(form: OAuth2PasswordRequestForm = Depends()):
+    """用户登录 (OAuth2 password flow)"""
+    from src.auth.security import verify_password, create_access_token, create_refresh_token
+
+    db = get_db()
+    user = db.get_user_by_username(form.username)
+    if not user or not verify_password(form.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    return TokenResponse(
+        access_token=create_access_token(user.id, user.role),
+        refresh_token=create_refresh_token(user.id),
+        user={
+            "id": user.id,
+            "username": user.username,
+            "role": user.role,
+            "mode": user.mode,
+        },
+    )
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+@app.post("/api/auth/refresh")
+async def auth_refresh(req: RefreshRequest):
+    """刷新 access token"""
+    from src.auth.security import decode_token, create_access_token
+
+    try:
+        payload = decode_token(req.refresh_token)
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="无效的 refresh token")
+        user_id = int(payload["sub"])
+    except HTTPException:
+        raise
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, KeyError, ValueError):
+        raise HTTPException(status_code=401, detail="Refresh token 无效或已过期")
+
+    db = get_db()
+    user = db.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="用户不存在")
+
+    return {
+        "access_token": create_access_token(user.id, user.role),
+        "token_type": "bearer",
+    }
+
+
+@app.get("/api/auth/me")
+async def auth_me(user: User = Depends(get_current_user)):
+    """获取当前用户信息"""
+    return {
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "mode": user.mode,
+        "created_at": str(user.created_at),
+    }
+
+
+# ===== 用户端点 =====
+
+
+@app.put("/api/user/mode")
+async def update_user_mode(req: UserModeRequest, user: User = Depends(get_current_user)):
+    """切换订阅模式 (global / custom)"""
+    db = get_db()
+    updated = db.update_user_mode(user.id, req.mode)
+    if not updated:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return {"status": "ok", "mode": updated.mode}
+
+
+@app.get("/api/user/feed")
+async def get_user_feed(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    unread_only: bool = Query(False),
+    user: User = Depends(get_current_user),
+):
+    """获取用户个人 Feed"""
+    db = get_db()
+
+    if user.mode == "global":
+        items, total = db.get_contents_paginated(
+            offset=(page - 1) * page_size,
+            limit=page_size,
+        )
+        return {
+            "items": [_content_to_dict(c) for c in items],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "mode": "global",
+        }
+    else:
+        items, total = db.get_user_feed(
+            user_id=user.id,
+            unread_only=unread_only,
+            page=page,
+            page_size=page_size,
+        )
+        return {
+            "items": [_content_to_dict(c) for c in items],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "mode": "custom",
+        }
+
+
+@app.post("/api/user/feed/{content_id}/read")
+async def mark_feed_read(content_id: int, user: User = Depends(get_current_user)):
+    """标记内容已读"""
+    db = get_db()
+    ok = db.mark_feed_read(user.id, content_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Feed 记录不存在")
+    return {"status": "ok"}
+
+
+@app.get("/api/user/subscriptions")
+async def list_user_subscriptions(user: User = Depends(get_current_user)):
+    """获取用户个人订阅列表"""
+    db = get_db()
+    subs = db.list_subscriptions(status="active")
+    if user.mode == "custom":
+        subs = [s for s in subs if s.scope == "user" and s.owner_id == user.id]
+    else:
+        subs = [s for s in subs if s.scope == "global"]
+    return [
+        {
+            "id": s.id,
+            "name": s.name,
+            "source": s.source,
+            "type": s.type,
+            "target": s.target,
+            "status": s.status,
+            "scope": s.scope,
+            "last_fetched_at": str(s.last_fetched_at) if s.last_fetched_at else None,
+        }
+        for s in subs
+    ]
+
+
+@app.post("/api/user/subscriptions")
+async def create_user_subscription(
+    req: UserSubscriptionCreate,
+    user: User = Depends(get_current_user),
+):
+    """创建用户个人订阅 (仅 custom 模式)"""
+    if user.mode != "custom":
+        raise HTTPException(status_code=400, detail="请先切换到自定义模式")
+
+    db = get_db()
+    sub = db.create_subscription({
+        "name": req.name,
+        "source": req.source,
+        "type": req.type,
+        "target": req.target,
+        "scope": "user",
+        "owner_id": user.id,
+    })
+    return {
+        "status": "ok",
+        "subscription": {
+            "id": sub.id,
+            "name": sub.name,
+            "source": sub.source,
+            "type": sub.type,
+            "target": sub.target,
+            "scope": sub.scope,
+        },
+    }
+
+
+@app.delete("/api/user/subscriptions/{sub_id}")
+async def delete_user_subscription(sub_id: int, user: User = Depends(get_current_user)):
+    """删除用户个人订阅"""
+    db = get_db()
+    sub = db.get_subscription(sub_id)
+    if not sub or sub.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="订阅不存在或无权限")
+    db.update_subscription(sub_id, {"status": "deleted"})
+    return {"status": "ok"}
+
+
+def _content_to_dict(c) -> dict:
+    """将 Content ORM 对象转为 dict"""
+    return {
+        "id": c.id,
+        "content_id": c.content_id,
+        "source": c.source,
+        "author": c.author,
+        "author_id": c.author_id,
+        "title": c.title,
+        "content": c.content,
+        "url": c.url,
+        "metrics": c.metrics,
+        "ai_analysis": c.ai_analysis,
+        "quality_score": c.quality_score,
+        "posted_at": str(c.posted_at) if c.posted_at else None,
+        "created_at": str(c.created_at),
+    }
 
 
 # ===== 健康检查 =====

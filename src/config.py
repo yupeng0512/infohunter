@@ -179,6 +179,19 @@ class Settings(BaseSettings):
     # ===== API 配置 =====
     api_fetch_limit: int = Field(default=300, description="前端获取内容的默认数量限制")
 
+    # ===== JWT 认证配置 =====
+    jwt_secret_key: str = Field(
+        default="",
+        description="JWT 签名密钥 (生产环境请用 openssl rand -hex 32 生成)",
+    )
+    jwt_algorithm: str = Field(default="HS256", description="JWT 签名算法")
+    jwt_access_token_expire_minutes: int = Field(
+        default=1440, description="Access Token 过期时间 (分钟), 默认 24 小时"
+    )
+    jwt_refresh_token_expire_days: int = Field(
+        default=30, description="Refresh Token 过期时间 (天)"
+    )
+
     # ===== 通用配置 =====
     timezone: str = Field(default="Asia/Shanghai", description="服务器时区")
     log_level: str = Field(default="INFO", description="日志级别")

@@ -29,6 +29,55 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    """用户表
+
+    支持管理员和普通消费者两种角色，
+    以及全局模式和自定义模式两种订阅模式。
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, comment="用户名"
+    )
+    password_hash: Mapped[str] = mapped_column(
+        String(255), nullable=False, comment="密码哈希 (bcrypt)"
+    )
+    role: Mapped[str] = mapped_column(
+        String(16), default="user", comment="角色: admin / user"
+    )
+    mode: Mapped[str] = mapped_column(
+        String(16), default="global", comment="订阅模式: global / custom"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=func.now(), comment="创建时间"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=func.now(), onupdate=func.now(), comment="更新时间"
+    )
+
+    subscriptions: Mapped[list["Subscription"]] = relationship(
+        "Subscription",
+        back_populates="owner",
+        foreign_keys="[Subscription.owner_id]",
+        lazy="dynamic",
+    )
+    feed_items: Mapped[list["UserContentFeed"]] = relationship(
+        "UserContentFeed", back_populates="user", lazy="dynamic"
+    )
+
+    __table_args__ = (
+        Index("idx_user_username", "username", unique=True),
+        Index("idx_user_role", "role"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<User(id={self.id}, username={self.username}, role={self.role})>"
+
+
 class Subscription(Base):
     """订阅表
 
@@ -69,6 +118,14 @@ class Subscription(Base):
     status: Mapped[str] = mapped_column(
         String(32), default="active", comment="状态: active / paused / deleted"
     )
+    scope: Mapped[str] = mapped_column(
+        String(16), default="global",
+        comment="作用域: global=管理员全局订阅 / user=用户个人订阅",
+    )
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"),
+        comment="所属用户 ID (scope=user 时必填, scope=global 时为空)",
+    )
     last_fetched_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, comment="上次采集时间"
     )
@@ -81,6 +138,9 @@ class Subscription(Base):
     )
 
     # 关系
+    owner: Mapped[Optional["User"]] = relationship(
+        "User", back_populates="subscriptions", foreign_keys=[owner_id]
+    )
     contents: Mapped[list["Content"]] = relationship(
         "Content", back_populates="subscription", lazy="dynamic"
     )
@@ -92,6 +152,8 @@ class Subscription(Base):
         Index("idx_sub_source", "source"),
         Index("idx_sub_type", "type"),
         Index("idx_sub_status", "status"),
+        Index("idx_sub_scope", "scope"),
+        Index("idx_sub_owner", "owner_id"),
         Index("idx_sub_last_fetched", "last_fetched_at"),
     )
 
@@ -354,3 +416,42 @@ class SystemConfig(Base):
 
     def __repr__(self) -> str:
         return f"<SystemConfig(id={self.id}, key={self.config_key})>"
+
+
+class UserContentFeed(Base):
+    """用户内容推送记录表
+
+    记录哪些内容推送给了哪个用户，支持已读/未读状态。
+    """
+
+    __tablename__ = "user_content_feed"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, comment="用户 ID"
+    )
+    content_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("contents.id"), nullable=False, comment="内容 ID"
+    )
+    is_read: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="是否已读"
+    )
+    pushed_at: Mapped[datetime] = mapped_column(
+        DateTime, default=func.now(), comment="推送时间"
+    )
+    read_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, comment="阅读时间"
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="feed_items")
+    content: Mapped["Content"] = relationship("Content")
+
+    __table_args__ = (
+        Index("idx_ucf_user", "user_id"),
+        Index("idx_ucf_content", "content_id"),
+        Index("idx_ucf_user_read", "user_id", "is_read"),
+        Index("idx_ucf_user_content", "user_id", "content_id", unique=True),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserContentFeed(user={self.user_id}, content={self.content_id}, read={self.is_read})>"

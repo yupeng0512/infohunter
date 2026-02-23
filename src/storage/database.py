@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, func, select, and_
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import settings
-from .models import Base, Content, CreditUsage, FetchLog, Subscription, SystemConfig
+from .models import Base, Content, CreditUsage, FetchLog, Subscription, SystemConfig, User, UserContentFeed
 
 _LOCAL_TZ = ZoneInfo(settings.timezone)
 
@@ -48,20 +48,35 @@ class DatabaseManager:
         from sqlalchemy import text, inspect
 
         inspector = inspect(self.engine)
-        if "contents" not in inspector.get_table_names():
-            return
+        table_names = inspector.get_table_names()
 
-        columns = {c["name"]: c for c in inspector.get_columns("contents")}
-        content_id_col = columns.get("content_id")
-        if content_id_col and getattr(content_id_col["type"], "length", 0) < 512:
-            try:
-                with self.engine.begin() as conn:
-                    conn.execute(text(
-                        "ALTER TABLE contents MODIFY COLUMN content_id VARCHAR(512) NOT NULL"
-                    ))
-                logger.info("迁移: contents.content_id 扩展到 VARCHAR(512)")
-            except Exception as e:
-                logger.warning(f"迁移 content_id 列失败 (可能已完成): {e}")
+        if "contents" in table_names:
+            columns = {c["name"]: c for c in inspector.get_columns("contents")}
+            content_id_col = columns.get("content_id")
+            if content_id_col and getattr(content_id_col["type"], "length", 0) < 512:
+                try:
+                    with self.engine.begin() as conn:
+                        conn.execute(text(
+                            "ALTER TABLE contents MODIFY COLUMN content_id VARCHAR(512) NOT NULL"
+                        ))
+                    logger.info("迁移: contents.content_id 扩展到 VARCHAR(512)")
+                except Exception as e:
+                    logger.warning(f"迁移 content_id 列失败 (可能已完成): {e}")
+
+        if "subscriptions" in table_names:
+            sub_cols = {c["name"] for c in inspector.get_columns("subscriptions")}
+            if "scope" not in sub_cols:
+                try:
+                    with self.engine.begin() as conn:
+                        conn.execute(text(
+                            "ALTER TABLE subscriptions ADD COLUMN scope VARCHAR(16) NOT NULL DEFAULT 'global'"
+                        ))
+                        conn.execute(text(
+                            "ALTER TABLE subscriptions ADD COLUMN owner_id INT NULL"
+                        ))
+                    logger.info("迁移: subscriptions 新增 scope/owner_id 列")
+                except Exception as e:
+                    logger.warning(f"迁移 subscriptions 列失败 (可能已完成): {e}")
 
     def get_session(self) -> Session:
         """获取数据库会话"""
@@ -816,6 +831,113 @@ class DatabaseManager:
             clean["posted_at"] = posted.astimezone(_LOCAL_TZ).replace(tzinfo=None)
 
         return clean
+
+    # ===== 用户管理 =====
+
+    def create_user(self, username: str, password_hash: str, role: str = "user") -> User:
+        with self.get_session() as session:
+            user = User(username=username, password_hash=password_hash, role=role)
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            logger.info(f"创建用户: {user.username} (role={user.role})")
+            return self._detach(user, User)
+
+    def get_user_by_id(self, user_id: int) -> Optional[User]:
+        with self.get_session() as session:
+            user = session.get(User, user_id)
+            if user:
+                return self._detach(user, User)
+            return None
+
+    def get_user_by_username(self, username: str) -> Optional[User]:
+        with self.get_session() as session:
+            user = session.execute(
+                select(User).where(User.username == username)
+            ).scalar_one_or_none()
+            if user:
+                return self._detach(user, User)
+            return None
+
+    def update_user_mode(self, user_id: int, mode: str) -> Optional[User]:
+        with self.get_session() as session:
+            user = session.get(User, user_id)
+            if not user:
+                return None
+            user.mode = mode
+            session.commit()
+            session.refresh(user)
+            return self._detach(user, User)
+
+    def list_users(self) -> list[User]:
+        with self.get_session() as session:
+            users = session.execute(
+                select(User).order_by(User.created_at.desc())
+            ).scalars().all()
+            return [self._detach(u, User) for u in users]
+
+    # ===== 用户 Feed =====
+
+    def add_user_feed_item(self, user_id: int, content_id: int) -> Optional[UserContentFeed]:
+        with self.get_session() as session:
+            existing = session.execute(
+                select(UserContentFeed).where(
+                    UserContentFeed.user_id == user_id,
+                    UserContentFeed.content_id == content_id,
+                )
+            ).scalar_one_or_none()
+            if existing:
+                return self._detach(existing, UserContentFeed)
+            item = UserContentFeed(user_id=user_id, content_id=content_id)
+            session.add(item)
+            session.commit()
+            session.refresh(item)
+            return self._detach(item, UserContentFeed)
+
+    def mark_feed_read(self, user_id: int, content_id: int) -> bool:
+        with self.get_session() as session:
+            item = session.execute(
+                select(UserContentFeed).where(
+                    UserContentFeed.user_id == user_id,
+                    UserContentFeed.content_id == content_id,
+                )
+            ).scalar_one_or_none()
+            if not item:
+                return False
+            item.is_read = True
+            item.read_at = datetime.now()
+            session.commit()
+            return True
+
+    def get_user_feed(
+        self,
+        user_id: int,
+        unread_only: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[Content], int]:
+        """获取用户 Feed，返回 (内容列表, 总数)"""
+        with self.get_session() as session:
+            base_query = (
+                select(Content)
+                .join(UserContentFeed, Content.id == UserContentFeed.content_id)
+                .where(UserContentFeed.user_id == user_id)
+            )
+            if unread_only:
+                base_query = base_query.where(UserContentFeed.is_read == False)
+
+            total = session.execute(
+                select(func.count()).select_from(base_query.subquery())
+            ).scalar() or 0
+
+            items = session.execute(
+                base_query
+                .order_by(Content.posted_at.desc().nullslast(), Content.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).scalars().all()
+
+            return [self._detach(c, Content) for c in items], total
 
     def _detach(self, obj, model_class, skip_deferred=False):
         """分离 ORM 对象，使其可在会话外使用"""
