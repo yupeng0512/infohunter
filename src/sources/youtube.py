@@ -52,6 +52,18 @@ class YouTubeClient(SourceClient):
         else:
             logger.warning("YouTube Data API not configured")
 
+    def _trigger_heal(self, signal: str, context_info: str = "") -> None:
+        """Trigger GEP self-healing for YouTube-specific errors."""
+        try:
+            from src.self_healer import on_source_error
+            on_source_error(
+                error_signal=signal,
+                source_name="youtube",
+                error_detail=context_info,
+            )
+        except Exception:
+            pass
+
     async def _refresh_access_token(self) -> bool:
         """刷新 OAuth 2.0 Access Token"""
         if not self._use_oauth:
@@ -70,6 +82,23 @@ class YouTubeClient(SourceClient):
                 )
                 if resp.status_code != 200:
                     logger.error(f"YouTube OAuth token refresh failed: {resp.status_code} {resp.text[:300]}")
+                    self._trigger_heal(
+                        f"youtube oauth token expired {resp.status_code}",
+                        resp.text[:300],
+                    )
+                    try:
+                        from src.ops_reporter import report_event
+                        report_event(
+                            project="infohunter",
+                            level="warning",
+                            category="auth_expired",
+                            title="YouTube OAuth Refresh Token 已过期",
+                            detail=f"刷新失败 ({resp.status_code}): {resp.text[:500]}",
+                            action_hint="重新授权: curl http://localhost:6003/api/youtube/oauth/authorize",
+                            dedup_key="infohunter:youtube_token_expired",
+                        )
+                    except Exception:
+                        pass
                     return False
 
                 data = resp.json()
@@ -80,6 +109,20 @@ class YouTubeClient(SourceClient):
 
         except Exception as e:
             logger.error(f"YouTube OAuth token refresh error: {e}")
+            self._trigger_heal(f"youtube oauth token revoked {e}", str(e))
+            try:
+                from src.ops_reporter import report_event
+                report_event(
+                    project="infohunter",
+                    level="warning",
+                    category="auth_expired",
+                    title="YouTube OAuth Token 刷新异常",
+                    detail=str(e)[:500],
+                    action_hint="重新授权: curl http://localhost:6003/api/youtube/oauth/authorize",
+                    dedup_key="infohunter:youtube_token_expired",
+                )
+            except Exception:
+                pass
             return False
 
     async def _ensure_token(self) -> bool:
@@ -124,9 +167,11 @@ class YouTubeClient(SourceClient):
                     logger.error("YouTube API Key blocked. Configure OAuth 2.0 to resolve.")
                 else:
                     logger.error(f"YouTube API forbidden: {error_text}")
+                self._trigger_heal(f"youtube api forbidden {response.status_code}", endpoint)
                 return {"items": []}
             if response.status_code != 200:
                 logger.error(f"YouTube API error: {response.status_code} {response.text[:500]}")
+                self._trigger_heal(f"youtube api error {response.status_code}", endpoint)
                 response.raise_for_status()
             return response.json()
 

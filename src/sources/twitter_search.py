@@ -60,6 +60,12 @@ class TwitterSearchClient(SourceClient):
         query: str,
         limit: int = 20,
         sort: str = "Latest",
+        min_faves: int = 0,
+        min_retweets: int = 0,
+        min_replies: int = 0,
+        lang: str = "",
+        exclude_replies: bool = False,
+        exclude_retweets: bool = False,
         **kwargs,
     ) -> list[dict[str, Any]]:
         """搜索推文
@@ -68,10 +74,22 @@ class TwitterSearchClient(SourceClient):
             query: 搜索查询 (支持高级语法: "AI" OR "LLM" from:sama since:2026-01-01)
             limit: 返回数量
             sort: 排序方式 "Latest" / "Top"
+            min_faves: 最低点赞数 (>0 时追加 min_faves:N 到查询)
+            min_retweets: 最低转发数 (>0 时追加 min_retweets:N 到查询)
+            min_replies: 最低回复数 (>0 时追加 min_replies:N 到查询)
+            lang: 语言过滤 (如 "en"，空字符串=不限制)
+            exclude_replies: 排除回复
+            exclude_retweets: 排除转推
         """
         if not self.api_key:
             logger.warning("TwitterAPI.io not configured, skipping search")
             return []
+
+        effective_query = self._build_query(
+            query, min_faves, min_retweets, min_replies,
+            lang=lang, exclude_replies=exclude_replies,
+            exclude_retweets=exclude_retweets,
+        )
 
         all_tweets = []
         cursor = None
@@ -79,7 +97,7 @@ class TwitterSearchClient(SourceClient):
 
         for page in range(pages):
             params = {
-                "query": query,
+                "query": effective_query,
                 "queryType": sort,
             }
             if cursor:
@@ -170,6 +188,38 @@ class TwitterSearchClient(SourceClient):
             self._log_error("get_trends", e)
             return []
 
+    @staticmethod
+    def _build_query(
+        query: str,
+        min_faves: int = 0,
+        min_retweets: int = 0,
+        min_replies: int = 0,
+        lang: str = "",
+        exclude_replies: bool = False,
+        exclude_retweets: bool = False,
+    ) -> str:
+        """拼接过滤条件到查询语句
+
+        利用 Twitter 高级搜索语法在 API 层面预过滤，节省 credit：
+        - min_faves/min_retweets: 互动量门槛
+        - lang: 语言限制（如 en/zh）
+        - exclude_replies/retweets: 排除回复和纯转推
+        """
+        parts = [query.strip()]
+        if min_faves > 0:
+            parts.append(f"min_faves:{min_faves}")
+        if min_retweets > 0:
+            parts.append(f"min_retweets:{min_retweets}")
+        if min_replies > 0:
+            parts.append(f"min_replies:{min_replies}")
+        if lang:
+            parts.append(f"lang:{lang}")
+        if exclude_replies:
+            parts.append("-filter:replies")
+        if exclude_retweets:
+            parts.append("-filter:retweets")
+        return " ".join(parts)
+
     def _parse_tweet(self, tweet: dict) -> dict[str, Any]:
         """解析推文数据为标准格式"""
         author = tweet.get("author", {})
@@ -213,5 +263,8 @@ class TwitterSearchClient(SourceClient):
             "metrics": metrics,
             "media_attachments": media,
             "posted_at": posted_at,
+            "lang": tweet.get("lang", ""),
+            "is_reply": tweet.get("isReply", False),
+            "is_retweet": tweet.get("isRetweet", False),
             "raw_data": tweet,
         }

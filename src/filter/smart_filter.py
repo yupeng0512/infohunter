@@ -130,10 +130,18 @@ class SmartFilter:
         - 时效性 (0-0.15)
         - 媒体附件 (0-0.10)
         - 作者可信度 (0-0.10)
+        - 垃圾惩罚 (负分)
         """
         score = 0.0
         source = item.get("source", "")
         metrics = item.get("metrics", {})
+
+        # 0. 垃圾内容快速拦截
+        if source == "twitter":
+            penalty = self._twitter_spam_penalty(item)
+            if penalty >= 1.0:
+                return 0.0
+            score -= penalty
 
         # 1. 互动量评分 (0-0.40)
         score += self._score_engagement(metrics, source)
@@ -155,7 +163,46 @@ class SmartFilter:
         # 5. 作者可信度 (0-0.10)
         score += self._score_author(item)
 
-        return min(round(score, 4), 1.0)
+        return min(max(round(score, 4), 0.0), 1.0)
+
+    # 抽奖/空投/垃圾推广高频词
+    _SPAM_PATTERNS = re.compile(
+        r"(?i)"
+        r"\bgiveaway\b|"
+        r"\bairdrop\b|"
+        r"\bclaim\s+(free|your)\b|"
+        r"\bdrop\s+(your\s+)?(wallet|address|sol)\b|"
+        r"\bfollow\s*\+\s*rt\b|"
+        r"\brt\s*\+\s*follow\b|"
+        r"\blike\s*(&|and)\s*rt\b|"
+        r"\bfree\s+mint\b|"
+        r"\bwhitelist\s+spot\b|"
+        r"\b\$\w{2,6}\s+(token|airdrop|presale)\b"
+    )
+
+    def _twitter_spam_penalty(self, item: dict) -> float:
+        """检测 Twitter 垃圾内容，返回惩罚分 (0=正常, >=1.0=直接丢弃)"""
+        content = (item.get("content") or "").strip()
+        penalty = 0.0
+
+        # 纯链接帖 / 极短内容（去掉 URL 后 < 20 字符）
+        text_only = re.sub(r"https?://\S+", "", content).strip()
+        if len(text_only) < 20:
+            penalty += 0.3
+
+        # 抽奖/空投/垃圾推广
+        if self._SPAM_PATTERNS.search(content):
+            return 1.0
+
+        # 纯转推
+        if item.get("is_retweet") or content.startswith("RT @"):
+            penalty += 0.2
+
+        # 回复帖（通常上下文不完整）
+        if item.get("is_reply"):
+            penalty += 0.1
+
+        return penalty
 
     def _score_engagement(self, metrics: dict, source: str) -> float:
         """互动量评分"""
@@ -166,16 +213,21 @@ class SmartFilter:
             views = metrics.get("views", 0)
 
             engagement = likes + retweets * 2 + replies * 3
+
             if engagement > 5000:
                 return 0.40
             elif engagement > 1000:
                 return 0.30
+            elif engagement > 500:
+                return 0.25
             elif engagement > 100:
                 return 0.20
+            elif engagement > 50:
+                return 0.15
             elif engagement > 10:
-                return 0.10
+                return 0.08
             elif engagement > 0:
-                return 0.03
+                return 0.02
             return 0.0
 
         elif source == "youtube":

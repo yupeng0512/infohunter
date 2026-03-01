@@ -95,6 +95,16 @@ class SourceClient(ABC):
         """记录 API 请求日志"""
         logger.debug(f"[{self.source_name}] {method}: {params}")
 
-    def _log_error(self, method: str, error: Exception) -> None:
-        """记录错误日志"""
+    def _log_error(self, method: str, error: Exception, **context) -> None:
+        """记录错误日志，并触发 GEP 自愈引擎"""
         logger.error(f"[{self.source_name}] {method} failed: {error}")
+        try:
+            from src.self_healer import on_source_error
+            on_source_error(
+                error_signal=f"{self.source_name} {method} {type(error).__name__}: {error}",
+                source_name=self.source_name,
+                error_detail=str(error),
+                context={"method": method, **context},
+            )
+        except Exception:
+            pass

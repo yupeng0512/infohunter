@@ -229,6 +229,10 @@ class Content(Base):
     ai_analyzed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, comment="AI 分析时间"
     )
+    ai_analysis_retries: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0",
+        comment="AI 分析重试次数 (超过上限则跳过)",
+    )
 
     # 评分
     relevance_score: Mapped[Optional[float]] = mapped_column(

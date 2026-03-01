@@ -63,6 +63,18 @@ class DatabaseManager:
                 except Exception as e:
                     logger.warning(f"迁移 content_id 列失败 (可能已完成): {e}")
 
+        if "contents" in table_names:
+            content_cols = {c["name"] for c in inspector.get_columns("contents")}
+            if "ai_analysis_retries" not in content_cols:
+                try:
+                    with self.engine.begin() as conn:
+                        conn.execute(text(
+                            "ALTER TABLE contents ADD COLUMN ai_analysis_retries INT NOT NULL DEFAULT 0"
+                        ))
+                    logger.info("迁移: contents 新增 ai_analysis_retries 列")
+                except Exception as e:
+                    logger.warning(f"迁移 ai_analysis_retries 列失败 (可能已完成): {e}")
+
         if "subscriptions" in table_names:
             sub_cols = {c["name"] for c in inspector.get_columns("subscriptions")}
             if "scope" not in sub_cols:
@@ -273,15 +285,26 @@ class DatabaseManager:
             ).scalars().all()
             return [self._detach(c, Content) for c in contents]
 
-    def get_unanalyzed_contents_prioritized(self, limit: int = 20) -> list[Content]:
+    def get_unanalyzed_contents_prioritized(
+        self,
+        limit: int = 20,
+        max_retries: int = 3,
+        max_age_days: int = 3,
+    ) -> list[Content]:
         """按优先级获取未分析内容
 
         优先级策略：
         1. 有订阅关联的（订阅流）> 无订阅关联的（探索流）
-        2. 发布时间越新越优先
-        3. 同等条件下按入库时间排序
+        2. 基础质量分高的优先分析
+        3. 发布时间越新越优先
+
+        过滤规则：
+        - 跳过重试次数超过 max_retries 的内容
+        - 跳过超过 max_age_days 天的过期内容
         """
         from sqlalchemy import case
+
+        cutoff = datetime.now() - timedelta(days=max_age_days)
 
         with self.get_session() as session:
             source_priority = case(
@@ -290,15 +313,30 @@ class DatabaseManager:
             )
             contents = session.execute(
                 select(Content)
-                .where(Content.ai_analyzed_at == None)
+                .where(
+                    Content.ai_analyzed_at == None,
+                    Content.ai_analysis_retries < max_retries,
+                    Content.created_at >= cutoff,
+                )
                 .order_by(
                     source_priority.asc(),
+                    Content.quality_score.desc(),
                     Content.posted_at.desc(),
                     Content.created_at.desc(),
                 )
                 .limit(limit)
             ).scalars().all()
             return [self._detach(c, Content) for c in contents]
+
+    def increment_analysis_retries(self, content_db_id: int) -> None:
+        """递增内容的 AI 分析重试次数"""
+        with self.get_session() as session:
+            session.execute(
+                Content.__table__.update()
+                .where(Content.id == content_db_id)
+                .values(ai_analysis_retries=Content.ai_analysis_retries + 1)
+            )
+            session.commit()
 
     def get_analyzed_contents_in_window(
         self,
@@ -385,13 +423,33 @@ class DatabaseManager:
         analysis: dict,
         importance: Optional[int] = None,
     ) -> None:
-        """更新内容的 AI 分析结果，同时写入 importance 映射的 quality_score"""
+        """更新内容的 AI 分析结果，用加权融合计算最终 quality_score
+
+        加权公式: final = base_score * 0.3 + ai_score * 0.7
+        - base_score: 基于互动量/内容长度的基础质量分 (0-1)
+        - ai_score: AI importance (1-10) 映射到 0-1
+        如果 AI 未返回 importance，保留原始 quality_score 不变。
+        """
         values: dict = {
             "ai_analysis": analysis,
             "ai_analyzed_at": datetime.now(),
         }
         if importance is not None:
-            values["quality_score"] = importance / 10.0
+            ai_score = importance / 10.0
+            with self.get_session() as session:
+                current = session.execute(
+                    select(Content.quality_score).where(Content.id == content_id)
+                ).scalar()
+                base_score = current if current is not None else 0.3
+                values["quality_score"] = round(base_score * 0.3 + ai_score * 0.7, 4)
+                session.execute(
+                    Content.__table__.update()
+                    .where(Content.id == content_id)
+                    .values(**values)
+                )
+                session.commit()
+                return
+
         with self.get_session() as session:
             session.execute(
                 Content.__table__.update()

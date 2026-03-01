@@ -71,13 +71,14 @@ async function loadSubscriptions() {
                         ${s.name}
                     </div>
                     <div class="sub-meta">
-                        <span title="${esc(s.target)}">${s.target.length > 50 ? s.target.substring(0,50)+'...' : s.target}</span>
+                        <span title="${esc(s.target)}">${_renderTargetAsTags(s.target, s.type)}</span>
                         <span>每 ${interval}</span>
                         <span class="tag tag-${s.status}">${s.status}</span>
                         ${s.last_fetched_at ? `<span>上次: ${new Date(s.last_fetched_at).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}
                     </div>
                 </div>
                 <div class="sub-actions">
+                    <button class="btn btn-ghost btn-sm" onclick="editSub(${s.id})">编辑</button>
                     <button class="btn btn-ghost btn-sm" onclick="toggleSub(${s.id},'${s.status}')">${s.status==='active'?'暂停':'启用'}</button>
                     <button class="btn btn-rose btn-sm" onclick="deleteSub(${s.id})">删除</button>
                 </div>
@@ -270,7 +271,10 @@ async function analyzeAuthor() {
 }
 
 /* ===== Modal ===== */
-function showCreateModal() { document.getElementById('create-modal').classList.add('active'); }
+function showCreateModal() {
+    document.getElementById('create-modal').classList.add('active');
+    updateSourceOptions();
+}
 function closeModal() { document.getElementById('create-modal').classList.remove('active'); }
 
 function updateSourceOptions() {
@@ -286,32 +290,88 @@ function updateSourceOptions() {
     updateTargetHint();
 }
 
+let _createKeywords = [];
+
 function updateTargetHint() {
     const type = document.getElementById('sub-type').value;
     const source = document.getElementById('sub-source').value;
-    const input = document.getElementById('sub-target');
+    const plainInput = document.getElementById('sub-target');
+    const tagsArea = document.getElementById('keyword-tags-area');
     const hint = document.getElementById('target-hint');
-    if (type === 'feed' || source === 'blog') {
-        input.placeholder = 'https://example.com/feed.xml';
-        hint.textContent = '完整的 RSS/Atom Feed URL，如: https://simonwillison.net/atom/everything/';
-    } else if (type === 'keyword') {
-        input.placeholder = 'AI agent OR LLM';
-        hint.textContent = '支持 OR 语法，如: "AI agent" OR "LLM" from:sama';
+
+    const isKeyword = (type === 'keyword' || type === 'topic') && source !== 'blog';
+
+    tagsArea.style.display = isKeyword ? 'block' : 'none';
+    plainInput.style.display = isKeyword ? 'none' : 'block';
+    hint.style.display = isKeyword ? 'none' : 'block';
+
+    if (isKeyword) {
+        _createKeywords = [];
+        _renderCreateTags();
+        const kwInput = document.getElementById('sub-keyword-input');
+        kwInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); addKeywordTag(); } };
+    } else if (type === 'feed' || source === 'blog') {
+        plainInput.placeholder = 'https://example.com/feed.xml';
+        hint.textContent = '完整的 RSS/Atom Feed URL';
     } else if (type === 'author') {
-        input.placeholder = '@sama 或 UCxxxxxx';
-        hint.textContent = 'Twitter 用户名 (不含 @) 或 YouTube 频道 ID (UC 开头)';
+        plainInput.placeholder = '@sama 或 UCxxxxxx';
+        hint.textContent = 'Twitter 用户名 (不含 @) 或 YouTube 频道 ID';
     } else {
-        input.placeholder = '#AI #MachineLearning';
+        plainInput.placeholder = '#AI #MachineLearning';
         hint.textContent = '话题标签，支持多个';
     }
 }
 
+function addKeywordTag() {
+    const input = document.getElementById('sub-keyword-input');
+    const val = input.value.trim();
+    if (!val || _createKeywords.includes(val)) { input.value = ''; return; }
+    _createKeywords.push(val);
+    input.value = '';
+    _renderCreateTags();
+    input.focus();
+}
+
+function removeKeywordTag(idx) {
+    _createKeywords.splice(idx, 1);
+    _renderCreateTags();
+}
+
+function _renderCreateTags() {
+    const el = document.getElementById('sub-keyword-tags');
+    el.innerHTML = _createKeywords.map((kw, i) =>
+        `<span class="keyword-tag">${esc(kw)}<span class="kw-remove" onclick="removeKeywordTag(${i})">&times;</span></span>`
+        + (i < _createKeywords.length - 1 ? '<span class="keyword-or-hint">OR</span>' : '')
+    ).join('');
+}
+
+function _keywordsToOrQuery(keywords) {
+    return keywords.map(k => k.includes(' ') ? `"${k}"` : k).join(' OR ');
+}
+
+function _orQueryToKeywords(query) {
+    if (!query) return [];
+    return query.split(/\s+OR\s+/i).map(k => k.replace(/^"|"$/g, '').trim()).filter(Boolean);
+}
+
+function _renderTargetAsTags(target, type) {
+    if ((type !== 'keyword' && type !== 'topic') || !target.includes(' OR ')) return esc(target.length > 50 ? target.substring(0,50)+'...' : target);
+    const kws = _orQueryToKeywords(target);
+    return '<span class="sub-target-tags">' + kws.map((kw, i) =>
+        `<span class="kw-pill">${esc(kw)}</span>` + (i < kws.length - 1 ? '<span class="kw-or">OR</span>' : '')
+    ).join('') + '</span>';
+}
+
 async function createSubscription() {
+    const type = document.getElementById('sub-type').value;
+    const source = document.getElementById('sub-source').value;
+    const isKeyword = (type === 'keyword' || type === 'topic') && source !== 'blog';
+    const target = isKeyword ? _keywordsToOrQuery(_createKeywords) : document.getElementById('sub-target').value;
     const data = {
         name: document.getElementById('sub-name').value,
-        source: document.getElementById('sub-source').value,
-        type: document.getElementById('sub-type').value,
-        target: document.getElementById('sub-target').value,
+        source: source,
+        type: type,
+        target: target,
         fetch_interval: parseInt(document.getElementById('sub-interval').value),
     };
     if (!data.name || !data.target) { showToast('请填写名称和目标','error'); return; }
@@ -330,8 +390,132 @@ async function toggleSub(id, st) {
     } catch { showToast('操作失败','error'); }
 }
 
-async function deleteSub(id) {
-    if (!confirm('确定删除此订阅？')) return;
+let _editKeywords = [];
+let _editSubId = null;
+let _editIsKeyword = false;
+
+async function editSub(id) {
+    try {
+        const r = await fetch(`${API}/api/subscriptions/${id}`);
+        const sub = await r.json();
+        _editSubId = id;
+        _editIsKeyword = (sub.type === 'keyword' || sub.type === 'topic') && sub.source !== 'blog';
+        _editKeywords = _editIsKeyword ? _orQueryToKeywords(sub.target) : [];
+
+        const intervalOptions = [
+            {v:1800,l:'30 分钟'},{v:3600,l:'1 小时'},{v:7200,l:'2 小时'},
+            {v:14400,l:'4 小时'},{v:28800,l:'8 小时'},{v:43200,l:'12 小时'},{v:86400,l:'24 小时'},
+        ];
+        const optionsHtml = intervalOptions.map(o =>
+            `<option value="${o.v}" ${sub.fetch_interval===o.v?'selected':''}>${o.l}</option>`
+        ).join('');
+
+        const targetHtml = _editIsKeyword
+            ? `<div>
+                    <label class="form-label">关键词</label>
+                    <div class="keyword-tags" id="edit-keyword-tags"></div>
+                    <div class="keyword-input-row">
+                        <input class="form-input" id="edit-keyword-input" placeholder="输入关键词后按 Enter 添加" style="flex:1">
+                        <button class="btn btn-ghost btn-sm" type="button" onclick="addEditKeywordTag()">添加</button>
+                    </div>
+                </div>`
+            : `<div>
+                    <label class="form-label">目标</label>
+                    <input class="form-input" id="edit-sub-target" value="${esc(sub.target)}">
+                </div>`;
+
+        const html = `
+            <div style="display:flex;flex-direction:column;gap:12px">
+                <div>
+                    <label class="form-label">名称</label>
+                    <input class="form-input" id="edit-sub-name" value="${esc(sub.name)}">
+                </div>
+                ${targetHtml}
+                <div>
+                    <label class="form-label">采集间隔</label>
+                    <select class="form-select" id="edit-sub-interval">${optionsHtml}</select>
+                </div>
+                <div style="display:flex;gap:16px">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:#94a3b8;cursor:pointer">
+                        <input type="checkbox" id="edit-sub-ai" ${sub.ai_analysis_enabled?'checked':''}>
+                        AI 分析
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:#94a3b8;cursor:pointer">
+                        <input type="checkbox" id="edit-sub-notify" ${sub.notification_enabled?'checked':''}>
+                        推送通知
+                    </label>
+                </div>
+                <button class="btn btn-primary" onclick="saveSubEdit(${id})">保存修改</button>
+            </div>`;
+        document.getElementById('edit-modal-title').textContent = `编辑订阅：${sub.name}`;
+        document.getElementById('edit-modal-body').innerHTML = html;
+        document.getElementById('edit-modal').classList.add('active');
+
+        if (_editIsKeyword) {
+            _renderEditTags();
+            const kwInput = document.getElementById('edit-keyword-input');
+            kwInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); addEditKeywordTag(); } };
+        }
+    } catch { showToast('加载订阅详情失败','error'); }
+}
+
+function addEditKeywordTag() {
+    const input = document.getElementById('edit-keyword-input');
+    const val = input.value.trim();
+    if (!val || _editKeywords.includes(val)) { input.value = ''; return; }
+    _editKeywords.push(val);
+    input.value = '';
+    _renderEditTags();
+    input.focus();
+}
+
+function removeEditKeywordTag(idx) {
+    _editKeywords.splice(idx, 1);
+    _renderEditTags();
+}
+
+function _renderEditTags() {
+    const el = document.getElementById('edit-keyword-tags');
+    el.innerHTML = _editKeywords.map((kw, i) =>
+        `<span class="keyword-tag">${esc(kw)}<span class="kw-remove" onclick="removeEditKeywordTag(${i})">&times;</span></span>`
+        + (i < _editKeywords.length - 1 ? '<span class="keyword-or-hint">OR</span>' : '')
+    ).join('');
+}
+
+async function saveSubEdit(id) {
+    const target = _editIsKeyword ? _keywordsToOrQuery(_editKeywords) : document.getElementById('edit-sub-target').value;
+    const data = {
+        name: document.getElementById('edit-sub-name').value,
+        target: target,
+        fetch_interval: parseInt(document.getElementById('edit-sub-interval').value),
+        ai_analysis_enabled: document.getElementById('edit-sub-ai').checked,
+        notification_enabled: document.getElementById('edit-sub-notify').checked,
+    };
+    try {
+        const r = await fetch(`${API}/api/subscriptions/${id}`, {
+            method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)
+        });
+        if (r.ok) { showToast('订阅已更新','success'); closeEditModal(); loadSubscriptions(); }
+        else { const e = await r.json(); showToast(`更新失败: ${e.detail||'未知错误'}`,'error'); }
+    } catch { showToast('网络错误','error'); }
+}
+
+let _deleteSubId = null;
+
+function deleteSub(id) {
+    _deleteSubId = id;
+    document.getElementById('delete-modal').classList.add('active');
+}
+
+function closeDeleteModal() {
+    document.getElementById('delete-modal').classList.remove('active');
+    _deleteSubId = null;
+}
+
+async function confirmDelete() {
+    if (_deleteSubId === null) return;
+    const id = _deleteSubId;
+    closeDeleteModal();
     try {
         const r = await fetch(`${API}/api/subscriptions/${id}`, {method:'DELETE'});
         if (r.ok) { showToast('已删除','success'); loadSubscriptions(); checkHealth(); }
@@ -388,9 +572,18 @@ async function loadSettings() {
         document.getElementById('set-explore-woeids').value = d.explore?.twitter_woeids || '1,23424977,23424868';
         document.getElementById('set-explore-yt-regions').value = d.explore?.youtube_regions || 'US,CN';
         document.getElementById('set-fetch-interval').value = d.schedule?.fetch_interval || 14400;
+        if (d.explore?.min_faves !== undefined) document.getElementById('set-explore-min-faves').value = d.explore.min_faves;
+        if (d.explore?.min_retweets !== undefined) document.getElementById('set-explore-min-retweets').value = d.explore.min_retweets;
+        if (d.explore?.subscription_min_faves !== undefined) document.getElementById('set-sub-min-faves').value = d.explore.subscription_min_faves;
+        if (d.explore?.subscription_min_retweets !== undefined) document.getElementById('set-sub-min-retweets').value = d.explore.subscription_min_retweets;
         if (d.modules) {
             document.getElementById('set-sub-enabled').checked = d.modules.subscription_enabled !== false;
             document.getElementById('set-notify-enabled').checked = d.modules.notify_enabled !== false;
+        }
+        if (d.ai_analysis) {
+            document.getElementById('set-ai-batch-size').value = d.ai_analysis.batch_size || 20;
+            document.getElementById('set-ai-max-retries').value = d.ai_analysis.max_retries || 3;
+            document.getElementById('set-ai-max-age-days').value = d.ai_analysis.max_age_days || 3;
         }
     } catch {}
 
@@ -429,6 +622,10 @@ async function loadSettings() {
                 if (v.keyword_interval) document.getElementById('set-explore-keyword-interval').value = v.keyword_interval;
                 if (v.max_trends_per_woeid) document.getElementById('set-explore-max-trends').value = v.max_trends_per_woeid;
                 if (v.max_search_per_keyword) document.getElementById('set-explore-search-limit').value = v.max_search_per_keyword;
+                if (v.min_faves !== undefined) document.getElementById('set-explore-min-faves').value = v.min_faves;
+                if (v.min_retweets !== undefined) document.getElementById('set-explore-min-retweets').value = v.min_retweets;
+                if (v.subscription_min_faves !== undefined) document.getElementById('set-sub-min-faves').value = v.subscription_min_faves;
+                if (v.subscription_min_retweets !== undefined) document.getElementById('set-sub-min-retweets').value = v.subscription_min_retweets;
             }
             if (c.key === 'notify_schedule') {
                 const v = c.value || {};
@@ -437,6 +634,12 @@ async function loadSettings() {
             if (c.key === 'twitter_credit_limit') {
                 const v = c.value || {};
                 if (v.daily_limit !== undefined) document.getElementById('set-twitter-credit-limit').value = v.daily_limit;
+            }
+            if (c.key === 'ai_config') {
+                const v = c.value || {};
+                if (v.batch_size !== undefined) document.getElementById('set-ai-batch-size').value = v.batch_size;
+                if (v.max_retries !== undefined) document.getElementById('set-ai-max-retries').value = v.max_retries;
+                if (v.max_age_days !== undefined) document.getElementById('set-ai-max-age-days').value = v.max_age_days;
             }
         }
     } catch {}
@@ -495,12 +698,23 @@ async function saveSettings() {
             youtube_regions: document.getElementById('set-explore-yt-regions').value.trim(),
             max_trends_per_woeid: parseInt(document.getElementById('set-explore-max-trends').value) || 2,
             max_search_per_keyword: parseInt(document.getElementById('set-explore-search-limit').value) || 5,
+            min_faves: parseInt(document.getElementById('set-explore-min-faves').value) || 0,
+            min_retweets: parseInt(document.getElementById('set-explore-min-retweets').value) || 0,
+            subscription_min_faves: parseInt(document.getElementById('set-sub-min-faves').value) || 0,
+            subscription_min_retweets: parseInt(document.getElementById('set-sub-min-retweets').value) || 0,
         }, '探索流配置');
 
         // Credit limit (独立 key，便于直接读取)
         await put('twitter_credit_limit', {
             daily_limit: parseInt(document.getElementById('set-twitter-credit-limit').value) || 10000,
         }, 'Twitter 每日 Credit 上限');
+
+        // AI analysis config
+        await put('ai_config', {
+            batch_size: parseInt(document.getElementById('set-ai-batch-size').value) || 20,
+            max_retries: parseInt(document.getElementById('set-ai-max-retries').value) || 3,
+            max_age_days: parseInt(document.getElementById('set-ai-max-age-days').value) || 3,
+        }, 'AI 分析配置');
 
         showToast('设置已保存','success');
     } catch (e) {
@@ -532,6 +746,9 @@ async function loadFetchLogs() {
         }).join('');
     } catch { el.innerHTML = '<div class="empty-state"><p>加载失败</p></div>'; }
 }
+
+/* ===== Edit Subscription Modal ===== */
+function closeEditModal() { document.getElementById('edit-modal').classList.remove('active'); }
 
 /* ===== OPML Import ===== */
 function showOpmlModal() { document.getElementById('opml-modal').classList.add('active'); document.getElementById('opml-result').style.display='none'; }

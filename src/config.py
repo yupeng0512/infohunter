@@ -82,7 +82,7 @@ class Settings(BaseSettings):
         default=True, description="是否启用订阅流 (关注的博主/关键词定时采集)"
     )
     default_fetch_interval: int = Field(
-        default=14400, description="默认采集间隔 (秒), 4h=14400"
+        default=43200, description="默认采集间隔 (秒), 12h=43200"
     )
     fetch_check_interval: int = Field(
         default=1800, description="检查到期订阅的频率 (秒), 30min=1800"
@@ -119,10 +119,10 @@ class Settings(BaseSettings):
         default=True, description="是否启用探索流 (自动发现热门内容)"
     )
     explore_fetch_interval: int = Field(
-        default=21600, description="探索流关键词搜索间隔 (秒), 6h=21600"
+        default=86400, description="探索流关键词搜索间隔 (秒), 24h=86400"
     )
     explore_trend_interval: int = Field(
-        default=86400, description="探索流趋势发现间隔 (秒), 24h=86400, 消耗大量 credit"
+        default=172800, description="探索流趋势发现间隔 (秒), 48h=172800, 消耗大量 credit"
     )
     explore_twitter_woeids: str = Field(
         default="1,23424977,23424868",
@@ -152,6 +152,38 @@ class Settings(BaseSettings):
         default=10000, description="Twitter API 每日 credit 上限 (0=不限制)"
     )
 
+    # ===== Twitter 互动量预过滤 (API 层面，节省 credit) =====
+    explore_min_faves: int = Field(
+        default=100,
+        description="探索流搜索最低点赞数 (查询中追加 min_faves:N)",
+    )
+    explore_min_retweets: int = Field(
+        default=20,
+        description="探索流搜索最低转发数 (查询中追加 min_retweets:N)",
+    )
+    subscription_min_faves: int = Field(
+        default=50,
+        description="订阅流关键词搜索最低点赞数 (查询中追加 min_faves:N，0=不限制)",
+    )
+    subscription_min_retweets: int = Field(
+        default=5,
+        description="订阅流关键词搜索最低转发数 (查询中追加 min_retweets:N，0=不限制)",
+    )
+
+    # ===== Twitter 搜索质量控制 =====
+    twitter_search_lang: str = Field(
+        default="en",
+        description="Twitter 搜索语言过滤 (en/zh/ja/空=不限制)，探索流和订阅流共用",
+    )
+    twitter_exclude_replies: bool = Field(
+        default=True,
+        description="搜索时排除回复帖 (-filter:replies)",
+    )
+    twitter_exclude_retweets: bool = Field(
+        default=True,
+        description="搜索时排除纯转推 (-filter:retweets)",
+    )
+
     # ===== AI 分析调度配置 =====
     analysis_check_interval: int = Field(
         default=1800, description="AI 分析定时任务检查间隔 (秒), 30min=1800"
@@ -167,7 +199,7 @@ class Settings(BaseSettings):
 
     # ===== 过滤配置 =====
     min_quality_score: float = Field(
-        default=0.3, description="最低质量评分阈值 (0-1)"
+        default=0.4, description="最低质量评分阈值 (0-1)"
     )
     realtime_notify_threshold: float = Field(
         default=0.6, description="实时推送的质量阈值 (0-1)"

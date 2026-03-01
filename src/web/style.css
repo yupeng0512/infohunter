@@ -11,6 +11,7 @@
     --text-dim: #7c82a1;
     --text-muted: #4a5078;
     --accent: #6366f1;
+    --accent-alpha: rgba(99, 102, 241, 0.15);
     --accent-glow: rgba(99, 102, 241, 0.25);
     --accent-soft: #818cf8;
     --emerald: #10b981;
@@ -625,6 +626,46 @@ body::before {
     width: 28px; text-align: center;
     color: var(--text-muted); font-size: 14px;
     user-select: none;
+}
+
+/* ===== Keyword Tags ===== */
+.keyword-tags {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 8px; margin-bottom: 8px;
+    background: var(--bg); border-radius: 8px;
+    min-height: 38px; align-items: center;
+}
+.keyword-tags:empty::after {
+    content: '暂无关键词，在下方输入添加'; color: var(--text-muted); font-size: 12px;
+}
+.keyword-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 6px;
+    background: var(--accent-alpha); color: var(--accent);
+    font-size: 13px; font-weight: 500;
+    transition: all 0.15s ease;
+}
+.keyword-tag .kw-remove {
+    cursor: pointer; opacity: 0.6; font-size: 16px; line-height: 1;
+    margin-left: 2px; transition: opacity 0.15s;
+}
+.keyword-tag .kw-remove:hover { opacity: 1; color: var(--rose); }
+.keyword-input-row { display: flex; gap: 6px; }
+.keyword-or-hint {
+    display: inline-flex; align-items: center;
+    padding: 4px 6px; border-radius: 4px;
+    background: rgba(99,102,241,0.1); color: var(--text-muted);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+}
+.sub-target-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.sub-target-tags .kw-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    background: var(--accent-alpha); color: var(--accent);
+    font-size: 12px; font-weight: 500;
+}
+.sub-target-tags .kw-or {
+    color: var(--text-muted); font-size: 11px; font-weight: 600;
+    padding: 0 2px;
 }
 
 /* ===== RESPONSIVE ===== */

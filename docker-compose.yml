@@ -7,12 +7,16 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      - "${INFOHUNTER_PORT:-6003}:6002"
     volumes:
       - ./logs:/app/logs
     networks:
       - sentinel-network
+      - traefik-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.infohunter.rule=Host(`infohunter.dev.local`)"
+      - "traefik.http.routers.infohunter.entrypoints=web"
+      - "traefik.http.services.infohunter.loadbalancer.server.port=6002"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6002/api/health')"]
       interval: 30s
@@ -22,7 +26,7 @@ services:
 
 networks:
   sentinel-network:
-    # 复用 github-sentinel 的 MySQL 网络
-    # 如果使用独立 MySQL，改为 driver: bridge
     external: true
     name: github-sentinel_sentinel-network
+  traefik-net:
+    external: true

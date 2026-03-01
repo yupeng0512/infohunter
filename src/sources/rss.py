@@ -85,6 +85,11 @@ class RSSClient(SourceClient):
                 response = await client.get(url)
                 if response.status_code != 200:
                     logger.warning(f"RSS fetch failed: {response.status_code} for {url}")
+                    self._log_error(
+                        "_fetch_and_parse",
+                        Exception(f"HTTP {response.status_code}"),
+                        feed_url=url,
+                    )
                     return []
 
             feed = feedparser.parse(response.text)

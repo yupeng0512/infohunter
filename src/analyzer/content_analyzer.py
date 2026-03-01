@@ -188,27 +188,14 @@ class ContentAnalyzer:
             if analysis:
                 result["status"] = "success"
                 result["analysis"] = analysis
-                logger.info("Batch extract_json succeeded on first attempt")
             else:
                 logger.warning(
-                    f"Batch extract_json failed, raw_len={len(raw_content)}, "
-                    f"starts={repr(raw_content[:80])}, "
-                    f"ends={repr(raw_content[-50:])}"
+                    f"Batch extract_json failed even with json_repair, "
+                    f"raw_len={len(raw_content)}, "
+                    f"starts={repr(raw_content[:80])}"
                 )
-                cleaned = self._clean_ai_output(raw_content)
-                analysis = AGUIClient.extract_json(cleaned)
-                if analysis:
-                    result["status"] = "success"
-                    result["analysis"] = analysis
-                    logger.info("Batch extract_json succeeded after cleanup")
-                else:
-                    logger.warning(
-                        f"Batch extract_json still failed after cleanup, "
-                        f"cleaned_len={len(cleaned)}, "
-                        f"starts={repr(cleaned[:80])}"
-                    )
-                    result["status"] = "success"
-                    result["analysis"] = {"raw_response": raw_content}
+                result["status"] = "success"
+                result["analysis"] = {"raw_response": raw_content}
 
         except Exception as e:
             result["status"] = "error"

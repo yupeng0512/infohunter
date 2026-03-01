@@ -533,6 +533,8 @@ async def test_push(
 @app.get("/api/health")
 async def health():
     db = get_db()
+    from src.self_healer import get_healer
+    healer_stats = get_healer().get_stats()
     return {
         "status": "ok",
         "subscriptions": db.get_subscription_count(),
@@ -540,7 +542,27 @@ async def health():
         "twitter_contents": db.get_content_count(source="twitter"),
         "youtube_contents": db.get_content_count(source="youtube"),
         "blog_contents": db.get_content_count(source="blog"),
+        "self_healing": {
+            "genes_loaded": healer_stats["genes_loaded"],
+            "total_repairs": healer_stats["total_attempts"],
+            "success_rate": healer_stats["success_rate"],
+        },
     }
+
+
+@app.get("/api/gep/stats")
+async def gep_stats():
+    """GEP self-healing statistics."""
+    from src.self_healer import get_healer
+    return get_healer().get_stats()
+
+
+@app.post("/api/gep/reload")
+async def gep_reload_genes(user: User = Depends(require_admin)):
+    """Hot-reload GEP genes from disk."""
+    from src.self_healer import get_healer
+    count = get_healer().reload_genes()
+    return {"status": "ok", "genes_loaded": count}
 
 
 # ===== 订阅管理 =====
@@ -831,6 +853,8 @@ async def get_stats():
     sub_cfg = _get_config_value(db, "subscription_config") or {}
     notify_cfg = _get_config_value(db, "notify_config") or {}
     notify_schedule_cfg = _get_config_value(db, "notify_schedule") or {}
+    ai_cfg = _get_config_value(db, "ai_config") or {}
+    analysis_focus_cfg = _get_config_value(db, "analysis_focus") or {}
 
     trend_interval = int(explore_cfg.get("trend_interval", settings.explore_trend_interval))
     keyword_interval = int(explore_cfg.get("keyword_interval", settings.explore_fetch_interval))
@@ -894,6 +918,17 @@ async def get_stats():
             "youtube_regions": explore_cfg.get("youtube_regions", settings.explore_youtube_regions),
             "max_trends_per_woeid": max_trends,
             "max_search_per_keyword": int(explore_cfg.get("max_search_per_keyword", settings.explore_max_search_per_keyword)),
+            "min_faves": int(explore_cfg.get("min_faves", settings.explore_min_faves)),
+            "min_retweets": int(explore_cfg.get("min_retweets", settings.explore_min_retweets)),
+            "subscription_min_faves": int(explore_cfg.get("subscription_min_faves", settings.subscription_min_faves)),
+            "subscription_min_retweets": int(explore_cfg.get("subscription_min_retweets", settings.subscription_min_retweets)),
+        },
+        "ai_analysis": {
+            "batch_size": int(ai_cfg.get("batch_size", settings.analysis_batch_size)),
+            "max_retries": int(ai_cfg.get("max_retries", 3)),
+            "max_age_days": int(ai_cfg.get("max_age_days", 3)),
+            "focus": analysis_focus_cfg.get("focus", "comprehensive"),
+            "check_interval": settings.analysis_check_interval,
         },
         "schedule": {
             "fetch_interval": settings.default_fetch_interval,

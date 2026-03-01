@@ -9,6 +9,7 @@ import re
 from typing import Any, AsyncGenerator, Optional
 
 import httpx
+import json_repair
 from loguru import logger
 
 from src.config import settings
@@ -242,13 +243,20 @@ class AGUIClient:
 
     @staticmethod
     def extract_json(text: str) -> Optional[dict]:
-        """从文本中提取 JSON，多层容错"""
+        """从文本中提取 JSON，多层容错
+
+        解析策略（按优先级）：
+        1. 标准 json.loads 直接解析
+        2. json_repair.loads 自动修复（处理中文引号、未转义引号、尾部逗号等）
+        3. 从 markdown 代码块提取后用 json_repair 解析
+        4. 贪婪提取最外层 {} 后用 json_repair 解析
+        """
         if not text:
             return None
 
         text_stripped = text.strip().lstrip('\ufeff')
 
-        # 1. 直接解析
+        # 1. 标准解析（快速路径）
         try:
             result = json.loads(text_stripped)
             if isinstance(result, dict):
@@ -256,12 +264,13 @@ class AGUIClient:
         except json.JSONDecodeError:
             pass
 
-        # 2. 放宽控制字符限制
+        # 2. json_repair 自动修复（处理中文引号、未转义引号、尾部逗号等）
         try:
-            result = json.loads(text_stripped, strict=False)
+            result = json_repair.loads(text_stripped)
             if isinstance(result, dict):
+                logger.debug("extract_json succeeded via json_repair")
                 return result
-        except json.JSONDecodeError:
+        except Exception:
             pass
 
         # 3. 从 markdown 代码块提取
@@ -269,52 +278,24 @@ class AGUIClient:
         matches = re.findall(json_pattern, text)
         for match in matches:
             try:
-                result = json.loads(match, strict=False)
+                result = json_repair.loads(match)
                 if isinstance(result, dict):
                     return result
-            except json.JSONDecodeError:
+            except Exception:
                 continue
 
-        # 4. 贪婪提取最外层 {} + 中文引号归一化
+        # 4. 贪婪提取最外层 {} 后用 json_repair 解析
         brace_start = text.find('{')
         brace_end = text.rfind('}')
         if brace_start >= 0 and brace_end > brace_start:
-            candidate = AGUIClient._normalize_quotes(text[brace_start:brace_end + 1])
+            candidate = text[brace_start:brace_end + 1]
             try:
-                result = json.loads(candidate, strict=False)
+                result = json_repair.loads(candidate)
                 if isinstance(result, dict):
+                    logger.debug("extract_json succeeded via brace extraction + json_repair")
                     return result
-            except json.JSONDecodeError as e:
-                logger.debug(
-                    f"extract_json brace extraction failed: {e}, "
-                    f"len={len(candidate)}, near_error={repr(candidate[max(0,e.pos-30):e.pos+30])}"
-                )
-
-        # 5. 清理控制字符 + 修复尾部逗号后重试
-        if brace_start >= 0 and brace_end > brace_start:
-            candidate = AGUIClient._normalize_quotes(text[brace_start:brace_end + 1])
-            candidate = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', candidate)
-            candidate = re.sub(r',\s*([\]}])', r'\1', candidate)
-            try:
-                result = json.loads(candidate, strict=False)
-                if isinstance(result, dict):
-                    return result
-            except json.JSONDecodeError:
-                pass
-
-        # 6. 终极回退：修复字符串值中未转义的双引号
-        if brace_start >= 0 and brace_end > brace_start:
-            candidate = AGUIClient._normalize_quotes(text[brace_start:brace_end + 1])
-            candidate = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', candidate)
-            candidate = re.sub(r',\s*([\]}])', r'\1', candidate)
-            candidate = AGUIClient._fix_unescaped_quotes(candidate)
-            try:
-                result = json.loads(candidate, strict=False)
-                if isinstance(result, dict):
-                    logger.info("extract_json succeeded via unescaped-quote fix")
-                    return result
-            except json.JSONDecodeError as e:
-                logger.debug(f"extract_json final fallback failed: {e}")
+            except Exception as e:
+                logger.debug(f"extract_json brace+repair failed: {e}, len={len(candidate)}")
 
         return None
 

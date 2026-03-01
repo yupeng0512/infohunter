@@ -1,0 +1,134 @@
+{
+  "schema_version": "1.0.0",
+  "description": "InfoHunter data source self-healing genes. Extracted from .context/KNOWN_ISSUES.md and operational patterns.",
+  "genes": [
+    {
+      "type": "Gene",
+      "id": "gene_youtube_oauth_refresh",
+      "category": "repair",
+      "signals_match": [
+        "youtube.*oauth.*expired",
+        "youtube.*token.*revoked",
+        "youtube.*forbidden",
+        "youtube.*401",
+        "youtube.*403"
+      ],
+      "preconditions": ["youtube_source_enabled"],
+      "strategy": [
+        "Detect YouTube OAuth token failure from error logs or health check",
+        "Attempt automatic token refresh via refresh_token",
+        "If refresh fails, disable YouTube subscriptions temporarily",
+        "Report to ops-dashboard with action_hint for manual re-authorization",
+        "Record capsule with outcome"
+      ],
+      "constraints": {
+        "max_retries": 2,
+        "cooldown_seconds": 3600
+      },
+      "validation": ["youtube_api_test_query"],
+      "repair_action": {
+        "type": "token_refresh",
+        "params": {
+          "source": "youtube",
+          "fallback": "disable_source"
+        }
+      },
+      "summary": "Auto-refresh YouTube OAuth token or gracefully disable source on persistent failure"
+    },
+    {
+      "type": "Gene",
+      "id": "gene_rss_ssl_retry",
+      "category": "repair",
+      "signals_match": [
+        "ssl.*error",
+        "ssl.*connection",
+        "tls.*handshake",
+        "certificate.*verify.*failed"
+      ],
+      "preconditions": [],
+      "strategy": [
+        "Detect SSL/TLS failure pattern from fetch errors",
+        "Retry with SSL verification disabled (for known-safe internal feeds)",
+        "Add problematic feed URL to SSL-skip allowlist",
+        "Log the incident for manual review"
+      ],
+      "constraints": {
+        "max_retries": 3,
+        "cooldown_seconds": 300
+      },
+      "validation": ["rss_feed_accessible"],
+      "repair_action": {
+        "type": "retry_with_config",
+        "params": {
+          "ssl_verify": false,
+          "max_retries": 3
+        }
+      },
+      "summary": "Retry RSS feeds with relaxed SSL when encountering TLS handshake failures"
+    },
+    {
+      "type": "Gene",
+      "id": "gene_api_rate_limit_backoff",
+      "category": "repair",
+      "signals_match": [
+        "rate.*limit",
+        "429",
+        "too.*many.*requests",
+        "quota.*exceeded",
+        "credit.*exceeded"
+      ],
+      "preconditions": [],
+      "strategy": [
+        "Detect rate limiting from API response codes",
+        "Apply exponential backoff to the affected source",
+        "Reduce batch_size for subsequent requests",
+        "Schedule retry after cooldown period"
+      ],
+      "constraints": {
+        "max_retries": 3,
+        "cooldown_seconds": 1800
+      },
+      "validation": ["source_api_responsive"],
+      "repair_action": {
+        "type": "backoff_and_reduce",
+        "params": {
+          "backoff_multiplier": 2,
+          "batch_size_reduction": 0.5,
+          "max_backoff_seconds": 3600
+        }
+      },
+      "summary": "Apply exponential backoff and reduce batch size when hitting API rate limits"
+    },
+    {
+      "type": "Gene",
+      "id": "gene_analysis_failure_recovery",
+      "category": "repair",
+      "signals_match": [
+        "analysis.*failed",
+        "ai.*timeout",
+        "llm.*error",
+        "content_analyzer.*error"
+      ],
+      "preconditions": ["ai_service_configured"],
+      "strategy": [
+        "Detect AI analysis failures exceeding retry threshold",
+        "Reset analysis retry counters for affected items",
+        "Reduce analysis batch_size to lower memory pressure",
+        "If persistent, skip complex items and process simpler ones first"
+      ],
+      "constraints": {
+        "max_retries": 2,
+        "cooldown_seconds": 600
+      },
+      "validation": ["analysis_pipeline_healthy"],
+      "repair_action": {
+        "type": "reset_and_reduce",
+        "params": {
+          "reset_retry_counters": true,
+          "reduce_batch_size": true
+        }
+      },
+      "summary": "Recover from AI analysis pipeline failures by resetting counters and reducing batch pressure"
+    }
+  ]
+}

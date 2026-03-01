@@ -142,6 +142,36 @@ class InfoHunter:
         return "comprehensive"
 
     @property
+    def dynamic_analysis_batch_size(self) -> int:
+        cfg = self._get_db_config("ai_config")
+        if cfg and cfg.get("batch_size") is not None:
+            try:
+                return int(cfg["batch_size"])
+            except (ValueError, TypeError):
+                pass
+        return settings.analysis_batch_size
+
+    @property
+    def dynamic_analysis_max_retries(self) -> int:
+        cfg = self._get_db_config("ai_config")
+        if cfg and cfg.get("max_retries") is not None:
+            try:
+                return int(cfg["max_retries"])
+            except (ValueError, TypeError):
+                pass
+        return 3
+
+    @property
+    def dynamic_analysis_max_age_days(self) -> int:
+        cfg = self._get_db_config("ai_config")
+        if cfg and cfg.get("max_age_days") is not None:
+            try:
+                return int(cfg["max_age_days"])
+            except (ValueError, TypeError):
+                pass
+        return 3
+
+    @property
     def dynamic_min_quality_score(self) -> float:
         cfg = self._get_db_config("min_quality_score")
         if cfg and "value" in cfg:
@@ -218,6 +248,46 @@ class InfoHunter:
             except (ValueError, TypeError):
                 pass
         return settings.twitter_daily_credit_limit
+
+    @property
+    def dynamic_explore_min_faves(self) -> int:
+        cfg = self._get_db_config("explore_config")
+        if cfg and cfg.get("min_faves") is not None:
+            try:
+                return int(cfg["min_faves"])
+            except (ValueError, TypeError):
+                pass
+        return settings.explore_min_faves
+
+    @property
+    def dynamic_explore_min_retweets(self) -> int:
+        cfg = self._get_db_config("explore_config")
+        if cfg and cfg.get("min_retweets") is not None:
+            try:
+                return int(cfg["min_retweets"])
+            except (ValueError, TypeError):
+                pass
+        return settings.explore_min_retweets
+
+    @property
+    def dynamic_subscription_min_faves(self) -> int:
+        cfg = self._get_db_config("explore_config")
+        if cfg and cfg.get("subscription_min_faves") is not None:
+            try:
+                return int(cfg["subscription_min_faves"])
+            except (ValueError, TypeError):
+                pass
+        return settings.subscription_min_faves
+
+    @property
+    def dynamic_subscription_min_retweets(self) -> int:
+        cfg = self._get_db_config("explore_config")
+        if cfg and cfg.get("subscription_min_retweets") is not None:
+            try:
+                return int(cfg["subscription_min_retweets"])
+            except (ValueError, TypeError):
+                pass
+        return settings.subscription_min_retweets
 
     def _track_twitter_credits(
         self,
@@ -338,8 +408,8 @@ class InfoHunter:
         self.scheduler = AsyncIOScheduler()
 
     def _normalize_subscription_intervals(self) -> None:
-        """将过短的订阅间隔统一为 6h (21600s)"""
-        min_interval = settings.default_fetch_interval  # 21600
+        """将过短的订阅间隔统一为 12h (43200s)"""
+        min_interval = settings.default_fetch_interval  # 43200
         subs = self.sub_manager.list_all()
         updated = 0
         for sub in subs:
@@ -460,6 +530,11 @@ class InfoHunter:
                     query=sub.target,
                     limit=20,
                     sort=sort,
+                    min_faves=self.dynamic_subscription_min_faves,
+                    min_retweets=self.dynamic_subscription_min_retweets,
+                    lang=settings.twitter_search_lang,
+                    exclude_replies=settings.twitter_exclude_replies,
+                    exclude_retweets=settings.twitter_exclude_retweets,
                 )
                 self._track_twitter_credits(
                     75, operation="keyword_search",
@@ -677,7 +752,12 @@ class InfoHunter:
                         continue
 
                     items = await self.twitter_search.search(
-                        query=query, limit=search_limit, sort="Top"
+                        query=query, limit=search_limit, sort="Top",
+                        min_faves=self.dynamic_explore_min_faves,
+                        min_retweets=self.dynamic_explore_min_retweets,
+                        lang=settings.twitter_search_lang,
+                        exclude_replies=settings.twitter_exclude_replies,
+                        exclude_retweets=settings.twitter_exclude_retweets,
                     )
                     self._track_twitter_credits(
                         75, operation="trend_search",
@@ -773,7 +853,12 @@ class InfoHunter:
             if self.twitter_search and self._check_twitter_credit_budget(75):
                 try:
                     items = await self.twitter_search.search(
-                        query=keyword, limit=search_limit, sort="Top"
+                        query=keyword, limit=search_limit, sort="Top",
+                        min_faves=self.dynamic_explore_min_faves,
+                        min_retweets=self.dynamic_explore_min_retweets,
+                        lang=settings.twitter_search_lang,
+                        exclude_replies=settings.twitter_exclude_replies,
+                        exclude_retweets=settings.twitter_exclude_retweets,
                     )
                     self._track_twitter_credits(
                         75, operation="keyword_search",
@@ -931,17 +1016,28 @@ class InfoHunter:
 
         按优先级排序处理未分析内容：
         1. 订阅流（有 subscription_id）优先于探索流
-        2. 越新的内容越优先
-        3. 每轮上限 analysis_batch_size 条
+        2. 基础质量分高的优先
+        3. 越新的内容越优先
+        4. 每轮上限 analysis_batch_size 条
+
+        保护机制：
+        - 重试超过 3 次的内容自动跳过
+        - 超过 3 天的过期内容不再分析
         """
         if not self.analyzer:
             return
 
-        batch_size = settings.analysis_batch_size
+        batch_size = self.dynamic_analysis_batch_size
+        max_retries = self.dynamic_analysis_max_retries
+        max_age_days = self.dynamic_analysis_max_age_days
         analysis_focus = self.dynamic_analysis_focus
 
         try:
-            unanalyzed = self.db.get_unanalyzed_contents_prioritized(limit=batch_size)
+            unanalyzed = self.db.get_unanalyzed_contents_prioritized(
+                limit=batch_size,
+                max_retries=max_retries,
+                max_age_days=max_age_days,
+            )
             if not unanalyzed:
                 logger.debug("无待分析内容")
                 return
@@ -949,6 +1045,7 @@ class InfoHunter:
             logger.info(f"AI 分析任务: 待处理 {len(unanalyzed)} 条 (侧重: {analysis_focus})")
 
             analyzed_count = 0
+            failed_count = 0
             for content in unanalyzed:
                 try:
                     # 为缺少字幕的高价值 YouTube 视频自动补充
@@ -991,11 +1088,27 @@ class InfoHunter:
                             content.id, analysis, importance=importance
                         )
                         analyzed_count += 1
+                    else:
+                        self.db.increment_analysis_retries(content.id)
+                        failed_count += 1
+                        logger.warning(
+                            f"分析内容 {content.content_id} 未成功 "
+                            f"(retry {content.ai_analysis_retries + 1}/{max_retries}): "
+                            f"{result.get('error', 'no analysis returned')}"
+                        )
 
                 except Exception as e:
-                    logger.error(f"分析内容 {content.content_id} 失败: {e}")
+                    self.db.increment_analysis_retries(content.id)
+                    failed_count += 1
+                    logger.error(
+                        f"分析内容 {content.content_id} 异常 "
+                        f"(retry {content.ai_analysis_retries + 1}/{max_retries}): {e}"
+                    )
 
-            logger.info(f"AI 分析完成: {analyzed_count}/{len(unanalyzed)} 成功")
+            logger.info(
+                f"AI 分析完成: {analyzed_count} 成功, "
+                f"{failed_count} 失败/{len(unanalyzed)} 总数"
+            )
 
         except Exception as e:
             logger.error(f"AI 分析任务失败: {e}")
