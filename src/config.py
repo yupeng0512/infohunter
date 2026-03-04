@@ -45,7 +45,7 @@ class Settings(BaseSettings):
         default="http://knot.woa.com",
         description="Knot/AG-UI 平台 API 基础地址",
     )
-    knot_model: str = Field(default="claude-4.5-sonnet", description="Knot 调用的模型")
+    knot_model: str = Field(default="claude-4.6-sonnet", description="Knot 调用的模型")
 
     # 内容分析 Agent
     knot_content_agent_id: str = Field(default="", description="内容分析 Agent ID")

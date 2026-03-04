@@ -32,7 +32,7 @@ agents/
 1. 登录 Knot 平台
 2. 创建新 Agent，名称填 "InfoHunter 内容分析师"
 3. 将 `content-analyzer/main.md` 中 `## Prompt` 部分开始的全部内容复制到 Agent 的系统提示词中
-4. 选择模型（推荐 deepseek-v3.1 或 glm-4.7）
+4. 选择模型（推荐 claude-4.6-sonnet 或 glm-5）
 5. 保存后获取 Agent ID，填入 `.env` 的 `KNOT_AGENT_ID`
 
 ### 2. 创建趋势分析 Agent（可选）
